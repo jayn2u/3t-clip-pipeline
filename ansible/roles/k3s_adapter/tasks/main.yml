@@ -1,0 +1,197 @@
+---
+- name: Require the frozen k3s release
+  ansible.builtin.assert:
+    that:
+      - k3s_version == 'v1.36.2+k3s1'
+      - >-
+        k3s_binary_url ==
+        'https://github.com/k3s-io/k3s/releases/download/v1.36.2%2Bk3s1/k3s'
+      - >-
+        k3s_binary_sha256 ==
+        '65a55ec56c24eab44383086166ec620a491952b7e23941a49ddca6e8a4c4b4de'
+      - >-
+        k3s_install_script_url ==
+        'https://raw.githubusercontent.com/k3s-io/k3s/v1.36.2%2Bk3s1/install.sh'
+      - >-
+        k3s_install_script_sha256 ==
+        '46177d4c99440b4c0311b67233823a8e8a2fc09693f6c89af1a7161e152fbfad'
+    fail_msg: k3s_version_drift
+    quiet: true
+  run_once: true
+
+- name: Restrict the fake host adapter to check mode
+  ansible.builtin.assert:
+    that: not k3s_adapter_fake_host_mode | default(false) | bool or ansible_check_mode
+    fail_msg: fake_host_mode_requires_check_mode
+    quiet: true
+  run_once: true
+
+- name: Require the production artifact cache
+  ansible.builtin.assert:
+    that:
+      - >-
+        airgap_dir == lookup('ansible.builtin.env', 'PWD') +
+        '/.cache/k3s/artifacts'
+    fail_msg: k3s_artifact_cache_must_be_task_owned
+    quiet: true
+  when: not k3s_adapter_fake_host_mode | default(false) | bool
+  run_once: true
+
+- name: Prepare the controller artifact cache
+  become: false
+  delegate_to: localhost
+  ansible.builtin.file:
+    path: "{{ airgap_dir }}"
+    state: directory
+    mode: "0700"
+  when: not ansible_check_mode
+  run_once: true
+
+- name: Download the checksum-pinned k3s binary
+  become: false
+  delegate_to: localhost
+  ansible.builtin.get_url:
+    url: "{{ k3s_binary_url }}"
+    dest: "{{ airgap_dir }}/k3s-amd64"
+    checksum: "sha256:{{ k3s_binary_sha256 }}"
+    mode: "0755"
+    timeout: 120
+  when: not ansible_check_mode
+  run_once: true
+
+- name: Download the checksum-pinned k3s installer
+  become: false
+  delegate_to: localhost
+  ansible.builtin.get_url:
+    url: "{{ k3s_install_script_url }}"
+    dest: "{{ airgap_dir }}/k3s-install.sh"
+    checksum: "sha256:{{ k3s_install_script_sha256 }}"
+    mode: "0755"
+    timeout: 120
+  when: not ansible_check_mode
+  run_once: true
+
+- name: Materialize fake host artifacts
+  when: k3s_adapter_fake_host_mode | default(false) | bool
+  run_once: true
+  block:
+    - name: Prepare the fake artifact directory
+      become: false
+      delegate_to: localhost
+      ansible.builtin.file:
+        path: "{{ airgap_dir }}"
+        state: directory
+        mode: "0700"
+      check_mode: false
+
+    - name: Write the fake k3s binary
+      become: false
+      delegate_to: localhost
+      ansible.builtin.copy:
+        content: "{{ k3s_adapter_fake_binary_content }}"
+        dest: "{{ airgap_dir }}/k3s-amd64"
+        mode: "0755"
+      check_mode: false
+
+    - name: Write the fake pinned installer
+      become: false
+      delegate_to: localhost
+      ansible.builtin.copy:
+        content: "{{ k3s_adapter_fake_installer_content }}"
+        dest: "{{ airgap_dir }}/k3s-install.sh"
+        mode: "0755"
+      check_mode: false
+
+    - name: Write the fake task-owned kubeconfig
+      become: false
+      delegate_to: localhost
+      ansible.builtin.copy:
+        content: |-
+          apiVersion: v1
+          kind: Config
+        dest: "{{ kubeconfig }}"
+        mode: "0600"
+      check_mode: false
+
+- name: Inspect the cached k3s binary
+  become: false
+  delegate_to: localhost
+  ansible.builtin.stat:
+    path: "{{ airgap_dir }}/k3s-amd64"
+    checksum_algorithm: sha256
+  register: k3s_adapter_binary_stat
+  run_once: true
+
+- name: Inspect the cached k3s installer
+  become: false
+  delegate_to: localhost
+  ansible.builtin.stat:
+    path: "{{ airgap_dir }}/k3s-install.sh"
+    checksum_algorithm: sha256
+  register: k3s_adapter_installer_stat
+  run_once: true
+
+- name: Verify the cached k3s binary checksum
+  ansible.builtin.assert:
+    that:
+      - k3s_adapter_binary_stat.stat.exists
+      - >-
+        k3s_adapter_binary_stat.stat.checksum ==
+        (k3s_adapter_test_binary_sha256
+        if k3s_adapter_fake_host_mode | default(false) | bool
+        else k3s_binary_sha256)
+    fail_msg: k3s_binary_checksum_mismatch
+    quiet: true
+  run_once: true
+
+- name: Verify the cached k3s installer checksum
+  ansible.builtin.assert:
+    that:
+      - k3s_adapter_installer_stat.stat.exists
+      - >-
+        k3s_adapter_installer_stat.stat.checksum ==
+        (k3s_adapter_test_installer_sha256
+        if k3s_adapter_fake_host_mode | default(false) | bool
+        else k3s_install_script_sha256)
+    fail_msg: k3s_installer_checksum_mismatch
+    quiet: true
+  run_once: true
+
+- name: Require a task-owned private kubeconfig
+  ansible.builtin.assert:
+    that:
+      - >-
+        k3s_adapter_fake_host_mode | default(false) | bool or
+        kubeconfig == lookup('ansible.builtin.env', 'PWD') +
+        '/.cache/kubeconfig/config'
+      - kubeconfig_mode == '0600'
+    fail_msg: kubeconfig_must_be_task_owned
+    quiet: true
+  run_once: true
+
+- name: Inspect fake adapter kubeconfig output
+  become: false
+  delegate_to: localhost
+  ansible.builtin.stat:
+    path: "{{ kubeconfig }}"
+  register: k3s_adapter_kubeconfig_stat
+  when: k3s_adapter_fake_host_mode | default(false) | bool
+  run_once: true
+
+- name: Require private fake adapter kubeconfig output
+  ansible.builtin.assert:
+    that:
+      - k3s_adapter_kubeconfig_stat.stat.exists
+      - k3s_adapter_kubeconfig_stat.stat.mode == '0600'
+    fail_msg: kubeconfig_must_be_task_owned
+    quiet: true
+  when: k3s_adapter_fake_host_mode | default(false) | bool
+  run_once: true
+
+- name: Limit secrets encryption to initial bootstrap
+  ansible.builtin.assert:
+    that:
+      - not k3s_secrets_encryption | bool or k3s_initial_bootstrap | bool
+    fail_msg: secrets_encryption_requires_initial_bootstrap
+    quiet: true
+  run_once: true

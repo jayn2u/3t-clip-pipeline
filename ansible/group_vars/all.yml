@@ -1,0 +1,16 @@
+---
+k3s_version: v1.36.2+k3s1
+k3s_binary_url: https://github.com/k3s-io/k3s/releases/download/v1.36.2%2Bk3s1/k3s
+k3s_binary_sha256: 65a55ec56c24eab44383086166ec620a491952b7e23941a49ddca6e8a4c4b4de
+k3s_install_script_url: https://raw.githubusercontent.com/k3s-io/k3s/v1.36.2%2Bk3s1/install.sh
+k3s_install_script_sha256: 46177d4c99440b4c0311b67233823a8e8a2fc09693f6c89af1a7161e152fbfad
+airgap_dir: "{{ lookup('ansible.builtin.env', 'PWD') }}/.cache/k3s/artifacts"
+k3s_secrets_encryption: true
+k3s_initial_bootstrap: false
+k3s_server_location: /var/lib/rancher/k3s
+k3s_token: "{{ vault_k3s_token }}"
+kubeconfig: "{{ lookup('ansible.builtin.env', 'PWD') }}/.cache/kubeconfig/config"
+kubeconfig_mode: "0600"
+extra_server_args: >-
+  {{ '--secrets-encryption' if (k3s_initial_bootstrap | bool and
+  k3s_secrets_encryption | bool) else '' }}

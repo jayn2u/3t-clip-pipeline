@@ -1,0 +1,12 @@
+---
+collections:
+  - name: https://github.com/k3s-io/k3s-ansible.git
+    type: git
+    version: 2c3f3773c704bd00bf7f6fc340cac8ab7ce9121b
+  - name: https://github.com/ansible-collections/kubernetes.core.git
+    type: git
+    version: 0f472b53e2ee73e11b5f9067ab0826d76183c157
+  - name: ansible.posix
+    version: 2.1.0
+  - name: community.general
+    version: 11.4.0

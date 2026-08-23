@@ -1,0 +1,142 @@
+---
+- name: Gather host facts
+  ansible.builtin.setup:
+  when: host_preflight_test_facts is not defined
+
+- name: Probe passwordless privilege escalation
+  become: true
+  ansible.builtin.command: /usr/bin/true
+  check_mode: false
+  changed_when: false
+  failed_when: false
+  register: host_preflight_become_probe
+  when: host_preflight_test_facts is not defined
+
+- name: Probe clock synchronization
+  ansible.builtin.command: timedatectl show --property=NTPSynchronized --value
+  check_mode: false
+  changed_when: false
+  failed_when: false
+  register: host_preflight_time_probe
+  when: host_preflight_test_facts is not defined
+
+- name: Probe active swap
+  ansible.builtin.command: swapon --show --noheadings
+  check_mode: false
+  changed_when: false
+  failed_when: false
+  register: host_preflight_swap_probe
+  when: host_preflight_test_facts is not defined
+
+- name: Probe NVIDIA driver and runtime
+  ansible.builtin.command: nvidia-smi --query-gpu=driver_version --format=csv,noheader
+  check_mode: false
+  changed_when: false
+  failed_when: false
+  register: host_preflight_nvidia_probe
+  when: host_preflight_test_facts is not defined
+
+- name: Probe storage mount
+  ansible.builtin.command: "mountpoint -q {{ host_preflight_storage_mount }}"
+  check_mode: false
+  changed_when: false
+  failed_when: false
+  register: host_preflight_storage_probe
+  when: host_preflight_test_facts is not defined
+
+- name: Normalize test host facts
+  ansible.builtin.set_fact:
+    host_preflight_normalized: "{{ host_preflight_test_facts }}"
+  when: host_preflight_test_facts is defined
+
+- name: Normalize discovered host facts
+  ansible.builtin.set_fact:
+    host_preflight_normalized:
+      distribution: "{{ ansible_distribution }}"
+      architecture: "{{ ansible_architecture }}"
+      passwordless_become: "{{ host_preflight_become_probe.rc == 0 }}"
+      required_ports_open: "{{ host_preflight_required_ports_open | bool }}"
+      time_synchronized: >-
+        {{ host_preflight_time_probe.rc == 0 and
+        host_preflight_time_probe.stdout | trim == 'yes' }}
+      swap_disabled: >-
+        {{ host_preflight_swap_probe.rc == 0 and
+        host_preflight_swap_probe.stdout | trim | length == 0 }}
+      firewall_policy_valid: "{{ host_preflight_firewall_policy_valid | bool }}"
+      nvidia_prerequisite_present: >-
+        {{ host_preflight_nvidia_probe.rc == 0 and
+        host_preflight_nvidia_probe.stdout | trim | length > 0 }}
+      storage_mount_ready: "{{ host_preflight_storage_probe.rc == 0 }}"
+  when: host_preflight_test_facts is not defined
+
+- name: Record host identity for topology validation
+  ansible.builtin.set_fact:
+    host_preflight_hostname: "{{ platform_hostname | default(ansible_hostname) }}"
+    host_preflight_machine_id: "{{ platform_machine_id | default(ansible_machine_id) }}"
+
+- name: Require unique host identities
+  ansible.builtin.assert:
+    that:
+      - >-
+        groups.k3s_cluster | map('extract', hostvars, 'host_preflight_hostname') |
+        unique | length == groups.k3s_cluster | length
+      - >-
+        groups.k3s_cluster | map('extract', hostvars, 'host_preflight_machine_id') |
+        unique | length == groups.k3s_cluster | length
+    fail_msg: duplicate_host_identity
+    quiet: true
+  run_once: true
+
+- name: Require Ubuntu
+  ansible.builtin.assert:
+    that: host_preflight_normalized.distribution == 'Ubuntu'
+    fail_msg: ubuntu_required
+    quiet: true
+
+- name: Require Linux amd64 hosts
+  ansible.builtin.assert:
+    that: host_preflight_normalized.architecture in ['x86_64', 'amd64']
+    fail_msg: linux_amd64_required
+    quiet: true
+
+- name: Require passwordless privilege escalation
+  ansible.builtin.assert:
+    that: host_preflight_normalized.passwordless_become | bool
+    fail_msg: passwordless_become_required
+    quiet: true
+
+- name: Require k3s network ports
+  ansible.builtin.assert:
+    that: host_preflight_normalized.required_ports_open | bool
+    fail_msg: required_ports_unavailable
+    quiet: true
+
+- name: Require synchronized clocks
+  ansible.builtin.assert:
+    that: host_preflight_normalized.time_synchronized | bool
+    fail_msg: time_sync_required
+    quiet: true
+
+- name: Require swap policy
+  ansible.builtin.assert:
+    that: host_preflight_normalized.swap_disabled | bool
+    fail_msg: swap_must_be_disabled
+    quiet: true
+
+- name: Require approved firewall policy
+  ansible.builtin.assert:
+    that: host_preflight_normalized.firewall_policy_valid | bool
+    fail_msg: firewall_policy_invalid
+    quiet: true
+
+- name: Require an existing NVIDIA driver and runtime
+  ansible.builtin.assert:
+    that: host_preflight_normalized.nvidia_prerequisite_present | bool
+    fail_msg: nvidia_prerequisite_missing
+    quiet: true
+
+- name: Require the storage mount
+  ansible.builtin.assert:
+    that: host_preflight_normalized.storage_mount_ready | bool
+    fail_msg: storage_mount_required
+    quiet: true

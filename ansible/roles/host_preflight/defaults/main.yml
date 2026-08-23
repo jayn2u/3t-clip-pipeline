@@ -1,0 +1,4 @@
+---
+host_preflight_required_ports_open: false
+host_preflight_firewall_policy_valid: false
+host_preflight_storage_mount: /mnt/clip-data
