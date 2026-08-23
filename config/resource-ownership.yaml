@@ -1,0 +1,111 @@
+---
+apiVersion: platform.three-t.dev/v1alpha1
+kind: ResourceOwnershipLedger
+resources:
+  - apiVersion: platform.three-t.dev/v1alpha1
+    kind: HostBootstrapSet
+    namespace: _cluster
+    name: inventory:k3s_cluster
+    owner: Ansible k3s_adapter
+    mechanism: ansible
+    adoptionPolicy: check-only
+    backupRequirement: >-
+      host facts; service args; datastore snapshot reference; config diff
+    rollbackOwner: Ansible/operator runbook
+  - apiVersion: apiextensions.k8s.io/v1
+    kind: CustomResourceDefinitionSet
+    namespace: _cluster
+    name: argoproj.io
+    owner: Helm release argo-workflows
+    mechanism: helm
+    adoptionPolicy: no-adoption
+    backupRequirement: >-
+      UID/spec/managedFields; CRD export; release lookup; field-manager diff
+    rollbackOwner: prior manifest/release owner
+  - apiVersion: apps/v1
+    kind: DeploymentSet
+    namespace: argo
+    name: argo-control-plane-and-rbac
+    owner: Helm release argo-workflows
+    mechanism: helm
+    adoptionPolicy: no-adoption
+    backupRequirement: >-
+      UID/spec/managedFields; values/render diff; backup references
+    rollbackOwner: Helm rollback/prior owner
+  - apiVersion: platform.three-t.dev/v1alpha1
+    kind: HelmReleaseSet
+    namespace: _cluster
+    name: gpu-discovery-and-device-plugin
+    owner: pinned NFD/NVIDIA Helm releases
+    mechanism: helm
+    adoptionPolicy: check-only
+    backupRequirement: node labels; DaemonSet/image IDs; Helm ownership diff
+    rollbackOwner: Helm rollback/prior owner
+  - apiVersion: platform.three-t.dev/v1alpha1
+    kind: KustomizeResourceSet
+    namespace: three-t-pipeline
+    name: platform-core
+    owner: Kustomize field manager three-t-pipeline-platform
+    mechanism: kustomize
+    adoptionPolicy: create-ephemeral-only
+    backupRequirement: rendered inventory; server-side dry-run
+    rollbackOwner: Kustomize/operator runbook
+  - apiVersion: storage.k8s.io/v1
+    kind: StorageResourceSet
+    namespace: three-t-pipeline
+    name: configured-overlay-storage
+    owner: Kustomize field manager three-t-pipeline-storage
+    mechanism: kustomize
+    adoptionPolicy: documentation-only
+    backupRequirement: >-
+      UID/spec/managedFields; findmnt; independent backup; immutable-field diff
+    rollbackOwner: prior storage owner
+  - apiVersion: apps/v1
+    kind: MinIOResourceSet
+    namespace: three-t-pipeline
+    name: configured-overlay-minio
+    owner: Kustomize field manager three-t-pipeline-storage
+    mechanism: kustomize
+    adoptionPolicy: documentation-only
+    backupRequirement: >-
+      UID/spec/managedFields; mounted-device proof;
+      object count/bytes/checksums; restore rehearsal
+    rollbackOwner: prior MinIO operator
+  - apiVersion: v1
+    kind: SecretSet
+    namespace: three-t-pipeline
+    name: platform-secrets
+    owner: Ansible platform_secrets
+    mechanism: ansible
+    adoptionPolicy: encryption-gated
+    backupRequirement: >-
+      key-name-only inventory; encryption-state proof; server-side dry-run;
+      redaction
+    rollbackOwner: Ansible/operator runbook
+  - apiVersion: platform.three-t.dev/v1alpha1
+    kind: OptionalResourceSet
+    namespace: _cluster
+    name: tailscale
+    owner: disabled Helm/Kustomize overlay
+    mechanism: disabled-overlay
+    adoptionPolicy: disabled
+    backupRequirement: ownership inventory; render; server-side dry-run
+    rollbackOwner: prior operator
+  - apiVersion: argoproj.io/v1alpha1
+    kind: Workflow
+    namespace: three-t-pipeline
+    name: generated
+    owner: 3t-pipeline submit client
+    mechanism: cli
+    adoptionPolicy: submit-only
+    backupRequirement: validated render; server-side dry-run; run UID evidence
+    rollbackOwner: CLI/operator delete run only
+  - apiVersion: s3.platform.three-t.dev/v1alpha1
+    kind: RunPrefix
+    namespace: _object-store
+    name: generated-run-prefix
+    owner: publisher payloads; commit-results marker
+    mechanism: conditional-object-write
+    adoptionPolicy: isolated-prefix-only
+    backupRequirement: sorted object size/SHA-256 inventory; marker digest
+    rollbackOwner: status/evidence tooling; no default delete

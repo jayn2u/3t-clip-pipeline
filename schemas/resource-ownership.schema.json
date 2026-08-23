@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://platform.three-t.dev/schemas/resource-ownership-v1alpha1.json",
+  "title": "Resource ownership ledger",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "kind", "resources"],
+  "properties": {
+    "apiVersion": {"const": "platform.three-t.dev/v1alpha1"},
+    "kind": {"const": "ResourceOwnershipLedger"},
+    "resources": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "apiVersion",
+          "kind",
+          "namespace",
+          "name",
+          "owner",
+          "mechanism",
+          "adoptionPolicy",
+          "backupRequirement",
+          "rollbackOwner"
+        ],
+        "properties": {
+          "apiVersion": {"type": "string", "minLength": 1},
+          "kind": {"type": "string", "minLength": 1},
+          "namespace": {"type": "string", "minLength": 1},
+          "name": {"type": "string", "minLength": 1},
+          "owner": {"type": "string", "minLength": 1},
+          "mechanism": {"type": "string", "minLength": 1},
+          "adoptionPolicy": {
+            "enum": [
+              "check-only",
+              "no-adoption",
+              "create-ephemeral-only",
+              "documentation-only",
+              "encryption-gated",
+              "disabled",
+              "submit-only",
+              "isolated-prefix-only"
+            ]
+          },
+          "backupRequirement": {
+            "type": "string",
+            "minLength": 1,
+            "not": {"pattern": "(?i)(^|[ ;])retain([ ;]|$)"}
+          },
+          "rollbackOwner": {"type": "string", "minLength": 1}
+        }
+      }
+    }
+  }
+}

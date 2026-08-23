@@ -1,0 +1,100 @@
+---
+apiVersion: platform.three-t.dev/v1alpha1
+kind: ReferenceTestClassification
+referenceRoot: /mnt/data/lab_clip/pipeline/tests
+tests:
+  - path: test_argo_workflows_manifests.py
+    classification: portable-invariant
+    provenance: pipeline/tests/test_argo_workflows_manifests.py
+    disposition: >-
+      reimplement renderer structure and lifecycle assertions against the
+      portable contract
+  - path: test_cache_profile.py
+    classification: portable-invariant
+    provenance: pipeline/tests/test_cache_profile.py:72-365
+    disposition: >-
+      reimplement scheduler accounting, reservation, cancellation, and
+      lock-release invariants
+  - path: test_code_bundle.py
+    classification: portable-invariant
+    provenance: pipeline/tests/test_code_bundle.py:41-91
+    disposition: >-
+      reimplement bundle path safety, exclusion, and deterministic identity
+      invariants
+  - path: test_dataset_cache.py
+    classification: portable-invariant
+    provenance: pipeline/tests/test_dataset_cache.py:107-1157
+    disposition: >-
+      reimplement canonical inventory, verification, safe hydration, and
+      failure atomicity
+  - path: test_gpu_scheduling.py
+    classification: portable-invariant
+    provenance: pipeline/tests/test_gpu_scheduling.py:19-177
+    disposition: >-
+      reimplement generic GPU accounting and runtime lifecycle without profile
+      literals
+  - path: test_layout.py
+    classification: portable-invariant
+    provenance: pipeline/tests/test_layout.py
+    disposition: >-
+      reimplement package and bundle layout invariants without the LabCLIP
+      module tree
+  - path: test_result_sync.py
+    classification: portable-invariant
+    provenance: pipeline/tests/test_result_sync.py:47-207
+    disposition: >-
+      reimplement publication retries, timeout behavior, filtering, and commit
+      eligibility
+  - path: test_s3_integrity.py
+    classification: portable-invariant
+    provenance: pipeline/tests/test_s3_integrity.py
+    disposition: >-
+      reimplement S3 digest, size, inventory, marker, and secret-redaction
+      invariants
+  - path: test_train_terminal_dag.py
+    classification: portable-invariant
+    provenance: pipeline/tests/test_train_terminal_dag.py:20-44
+    disposition: >-
+      reimplement terminal run and final publication lifecycle invariants
+  - path: test_local_cache_manifests.py
+    classification: labclip-only
+    provenance: pipeline/tests/test_local_cache_manifests.py:17-116
+    disposition: >-
+      parameterize or exclude fixed node, PV, PVC, and storage-class names
+  - path: test_minio_bootstrap.py
+    classification: labclip-only
+    provenance: pipeline/tests/test_minio_bootstrap.py
+    disposition: exclude LabCLIP bucket, service, secret, and bootstrap fixtures
+  - path: test_minio_manifests.py
+    classification: labclip-only
+    provenance: pipeline/tests/test_minio_manifests.py
+    disposition: >-
+      parameterize or exclude LabCLIP MinIO deployment and service identities
+  - path: test_minio_ml_assets_naming.py
+    classification: labclip-only
+    provenance: pipeline/tests/test_minio_ml_assets_naming.py
+    disposition: exclude consumer ML-asset naming policy
+  - path: test_option_c_paths.py
+    classification: labclip-only
+    provenance: pipeline/tests/test_option_c_paths.py
+    disposition: exclude fixed dataset roots and Option C layout policy
+  - path: test_storage.py
+    classification: labclip-only
+    provenance: pipeline/tests/test_storage.py:1-160
+    disposition: >-
+      parameterize or exclude LabCLIP endpoints, buckets, credentials, and
+      service names
+  - path: test_submit_core.py
+    classification: labclip-only
+    provenance: pipeline/tests/test_submit_core.py:9-126
+    disposition: >-
+      exclude datasets, training entries, W&B policy, labels, and five-fold
+      rules
+  - path: test_submit_kfold.py
+    classification: labclip-only
+    provenance: pipeline/tests/test_submit_kfold.py
+    disposition: exclude fixed datasets, five-fold matrix, and labclip labels
+  - path: test_tailscale_operator_manifests.py
+    classification: labclip-only
+    provenance: pipeline/tests/test_tailscale_operator_manifests.py
+    disposition: exclude LabCLIP Tailscale hostnames and operator fixtures
