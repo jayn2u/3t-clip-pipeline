@@ -16,6 +16,7 @@ from three_t_clip_pipeline.render import (
     render_workflow_bytes,
     run_client_validation,
 )
+from three_t_clip_pipeline.runtime.entrypoint import runtime_app
 
 _STDOUT_PATH: Final = Path("-")
 
@@ -26,6 +27,7 @@ app = typer.Typer(
 )
 contract_app = typer.Typer(help="Validate frozen workload contracts.", no_args_is_help=True)
 app.add_typer(contract_app, name="contract")
+app.add_typer(runtime_app, name="runtime")
 
 
 @app.callback(invoke_without_command=True)
