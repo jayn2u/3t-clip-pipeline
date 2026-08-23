@@ -1,0 +1,85 @@
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "3t-clip-pipeline"
+version = "0.1.0"
+description = "Portable orchestration platform for 3T-CLIP workloads"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "boto3>=1.40,<2",
+  "botocore>=1.40,<2",
+  "kubernetes>=33,<34",
+  "pydantic>=2.11,<3",
+  "pyyaml>=6.0,<7",
+  "typer>=0.16,<1",
+]
+
+[project.scripts]
+3t-pipeline = "three_t_clip_pipeline.cli:main"
+
+[dependency-groups]
+dev = [
+  "ansible-core>=2.19,<2.20",
+  "ansible-lint>=25.8,<26",
+  "basedpyright>=1.31,<2",
+  "coverage>=7.10,<8",
+  "jsonschema>=4.25,<5",
+  "pytest>=8.4,<9",
+  "pytest-cov>=6.2,<7",
+  "ruff>=0.12,<1",
+  "yamllint>=1.37,<2",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/three_t_clip_pipeline"]
+
+[tool.basedpyright]
+typeCheckingMode = "all"
+pythonVersion = "3.12"
+pythonPlatform = "All"
+include = ["src", "tests"]
+exclude = ["**/__pycache__", "**/.venv", "**/build", "**/dist"]
+venvPath = "."
+venv = ".venv"
+reportUnusedCallResult = "warning"
+reportUnnecessaryTypeIgnoreComment = "error"
+reportUnusedVariable = "error"
+reportMissingParameterType = "error"
+reportPrivateUsage = "error"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = ["COM812", "ISC001", "D203", "D213", "CPY001", "FBT001", "FBT002", "TD002", "TD003", "FIX002"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["S101", "S603", "S607", "ARG", "PLR2004", "SLF001", "D", "ERA001", "TC003"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+docstring-code-format = true
+docstring-code-line-length = "dynamic"
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+addopts = ["-ra", "--strict-config", "--strict-markers"]
+filterwarnings = ["error"]
+
+[tool.coverage.run]
+source = ["three_t_clip_pipeline"]
+branch = true
+
+[tool.coverage.report]
+exclude_lines = ["pragma: no cover", "if TYPE_CHECKING:", "raise NotImplementedError"]

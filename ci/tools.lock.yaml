@@ -1,0 +1,74 @@
+schemaVersion: 1
+python:
+  version: 3.12.11
+  runtimeImage: docker.io/library/python:3.12.11-slim-bookworm@sha256:519591d6871b7bc437060736b9f7456b8731f1499a57e22e6c285135ae657bf7
+uv:
+  version: 0.11.33
+  linuxAmd64TarSha256: aa9fca823c03289fb6e3460b3dc864f3ea895cafaf9b99247701a67b17d1b018
+docker:
+  version: 29.4.0
+buildx:
+  version: 0.34.1
+  linuxAmd64Sha256: f1332ddb9010bd0b72628266c3a906d9a6979848033df4c8d9bd2cd113bae12b
+kubectl:
+  version: v1.36.2
+  linuxAmd64Sha256: 1e9045ec32bea85da43de85f0065358529ea7c7a152eca78154fba5b58c27d82
+  embeddedKustomizeVersion: v5.8.1
+helm:
+  version: v4.2.3
+  linuxAmd64TarSha256: e9b88b4ee95b18c706839c28d3a0220e5bc470e9cd9262410c90793c45ff8b7c
+kind:
+  version: v0.31.0
+  linuxAmd64Sha256: eb244cbafcc157dff60cf68693c14c9a75c4e6e6fedaf9cd71c58117cb93e3fa
+  nodeImage: docker.io/kindest/node:v1.35.0@sha256:4613778f3cfcd10e615029370f5786704559103cf27bef934597ba562b269661
+kubeconform:
+  version: v0.7.0
+  linuxAmd64TarSha256: c31518ddd122663b3f3aa874cfe8178cb0988de944f29c74a0b9260920d115d3
+schemaSources:
+  kubernetes:
+    repository: yannh/kubernetes-json-schema
+    commit: 5a69f8365c9d3ed7de997f5365e22481cf775fa2
+    subset: v1.36.2-standalone-strict
+    integrity: checked-in-per-file-sha256-manifest
+  argoWorkflows:
+    version: v4.0.7
+    commit: 9aeb47ce10339f4a14819335c6a00027353ba0df
+    subset: full-workflow-crd-openapi
+    integrity: checked-in-sha256-manifest
+ansibleCollections:
+  kubernetesCore:
+    version: 6.5.0
+    commit: 0f472b53e2ee73e11b5f9067ab0826d76183c157
+  k3sOrchestration:
+    tag: 1.2.0
+    commit: 2c3f3773c704bd00bf7f6fc340cac8ab7ce9121b
+k3s:
+  version: v1.36.2+k3s1
+  linuxAmd64Sha256: 65a55ec56c24eab44383086166ec620a491952b7e23941a49ddca6e8a4c4b4de
+helmCharts:
+  argoWorkflows:
+    version: 1.0.19
+    sha256: 11910d3586c6737df04dbb2e48c373bc88cf5673d6bb17d7d421565495897da8
+  nodeFeatureDiscovery:
+    version: 0.18.3
+    sha256: 83a327ad61545bc89b319e94f5175ea4d265c9b6ffaa2832af2a0a85389409de
+  nvidiaDevicePlugin:
+    version: 0.17.1
+    sha256: 542ce451ce5d4611df00959e61c5638b7deeaf65c13daf03914d4688f94ae555
+images:
+  localRegistry: docker.io/library/registry:2.8.3@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373
+  minio: docker.io/minio/minio:RELEASE.2025-04-22T22-12-26Z@sha256:a1ea29fa28355559ef137d71fc570e508a214ec84ff8083e39bc5428980b015e
+  argoController: quay.io/argoproj/workflow-controller:v4.0.7@sha256:8e3ca93350c18348e50cdb1899f37d672f9995d9bf51412d86dee52da22fff19
+  argoServerCli: quay.io/argoproj/argocli:v4.0.7@sha256:8c141b1acd26df3de70724aedaae0ee5a7d361cdf744a1daa6a1596f205cee50
+  argoExecutor: quay.io/argoproj/argoexec:v4.0.7@sha256:eb2a7ca4d678a0c8c4f2de44f815f02d9eb12ac4609855f897744139aef220b4
+  argoCrdJob: registry.k8s.io/kubectl:v1.36.2@sha256:b0d792e0d8dfb9bb1b922b78b23137e2a34bb6f9667640353a9d2aadd1fd7761
+  nodeFeatureDiscovery: registry.k8s.io/nfd/node-feature-discovery:v0.18.3@sha256:f9ef2ebee55141a1758d3c0a87bb701f5db2adf6856f7218b11bc2bac7b63862
+  nvidiaDevicePlugin: nvcr.io/nvidia/k8s-device-plugin:v0.17.1@sha256:af31e2b7c7f89834c4e5219860def7ac2e49a207b3d4e8610d5a26772b7738e5
+githubActions:
+  checkout: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+  uploadArtifact: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+  setupUv: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9
+  setupDocker: docker/setup-docker-action@77e84dbf09b47d1e29270283c22f16145aa85ca1
+  setupBuildx: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c
+  buildPush: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf
+  login: docker/login-action@dbcb813823bdd20940b903addbd779551569679f
