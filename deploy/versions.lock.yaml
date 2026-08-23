@@ -1,0 +1,41 @@
+# yamllint disable rule:line-length
+---
+apiVersion: platform.three-t.dev/v1alpha1
+kind: PlatformVersionLock
+charts:
+  argoWorkflows:
+    repository: https://argoproj.github.io/argo-helm
+    archiveUrl: https://github.com/argoproj/argo-helm/releases/download/argo-workflows-1.0.19/argo-workflows-1.0.19.tgz
+    archive: argo-workflows-1.0.19.tgz
+    version: "1.0.19"
+    appVersion: v4.0.7
+    chartSourceCommit: 8a0b021a17aeddc430ac1e92b841b8ca1a6be4aa
+    sourceRepository: https://github.com/argoproj/argo-workflows
+    sourceCommit: 9aeb47ce10339f4a14819335c6a00027353ba0df
+    sha256: 11910d3586c6737df04dbb2e48c373bc88cf5673d6bb17d7d421565495897da8
+  nodeFeatureDiscovery:
+    repository: oci://registry.k8s.io/nfd/charts/node-feature-discovery
+    archiveUrl: oci://registry.k8s.io/nfd/charts/node-feature-discovery:0.18.3
+    archive: node-feature-discovery-0.18.3.tgz
+    version: "0.18.3"
+    appVersion: v0.18.3
+    sourceRepository: https://github.com/kubernetes-sigs/node-feature-discovery
+    sourceCommit: f39ef6267b20ddeb79e717940b71bb98979c49a0
+    sha256: 83a327ad61545bc89b319e94f5175ea4d265c9b6ffaa2832af2a0a85389409de
+  nvidiaDevicePlugin:
+    repository: https://nvidia.github.io/k8s-device-plugin
+    archiveUrl: https://nvidia.github.io/k8s-device-plugin/stable/nvidia-device-plugin-0.17.1.tgz
+    archive: nvidia-device-plugin-0.17.1.tgz
+    version: "0.17.1"
+    appVersion: v0.17.1
+    sourceRepository: https://github.com/NVIDIA/k8s-device-plugin
+    sourceCommit: 3c378193fcebf6e955f0d65bd6f2aeed099ad8ea
+    sha256: 542ce451ce5d4611df00959e61c5638b7deeaf65c13daf03914d4688f94ae555
+images:
+  argoController: quay.io/argoproj/workflow-controller:v4.0.7@sha256:8e3ca93350c18348e50cdb1899f37d672f9995d9bf51412d86dee52da22fff19
+  argoServer: quay.io/argoproj/argocli:v4.0.7@sha256:8c141b1acd26df3de70724aedaae0ee5a7d361cdf744a1daa6a1596f205cee50
+  argoExecutor: quay.io/argoproj/argoexec:v4.0.7@sha256:eb2a7ca4d678a0c8c4f2de44f815f02d9eb12ac4609855f897744139aef220b4
+  argoCrdKubectl: registry.k8s.io/kubectl:v1.36.2@sha256:b0d792e0d8dfb9bb1b922b78b23137e2a34bb6f9667640353a9d2aadd1fd7761
+  nodeFeatureDiscovery: registry.k8s.io/nfd/node-feature-discovery:v0.18.3@sha256:f9ef2ebee55141a1758d3c0a87bb701f5db2adf6856f7218b11bc2bac7b63862
+  nvidiaDevicePlugin: nvcr.io/nvidia/k8s-device-plugin:v0.17.1@sha256:af31e2b7c7f89834c4e5219860def7ac2e49a207b3d4e8610d5a26772b7738e5
+  minio: docker.io/minio/minio:RELEASE.2025-04-22T22-12-26Z@sha256:a1ea29fa28355559ef137d71fc570e508a214ec84ff8083e39bc5428980b015e

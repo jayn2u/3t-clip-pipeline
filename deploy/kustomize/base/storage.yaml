@@ -1,0 +1,40 @@
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: three-t-local
+provisioner: kubernetes.io/no-provisioner
+volumeBindingMode: WaitForFirstConsumer
+reclaimPolicy: Retain
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: three-t-local-data
+spec:
+  capacity:
+    storage: 100Gi
+  accessModes: [ReadWriteOnce]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: three-t-local
+  local:
+    path: /srv/three-t-pipeline
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: [example-worker]
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: three-t-data
+  namespace: three-t-pipeline
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: three-t-local
+  resources:
+    requests:
+      storage: 100Gi

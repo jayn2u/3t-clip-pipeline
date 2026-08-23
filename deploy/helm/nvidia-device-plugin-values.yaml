@@ -1,0 +1,17 @@
+# yamllint disable rule:line-length
+---
+allowDefaultNamespace: true
+image:
+  repository: nvcr.io/nvidia/k8s-device-plugin
+  tag: v0.17.1@sha256:af31e2b7c7f89834c4e5219860def7ac2e49a207b3d4e8610d5a26772b7738e5
+  pullPolicy: IfNotPresent
+config:
+  map:
+    default: |-
+      version: v1
+      flags:
+        failOnInitError: true
+        migStrategy: none
+  default: default
+runtimeClassName: null
+nodeSelector: {}

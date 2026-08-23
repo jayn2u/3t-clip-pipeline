@@ -1,3 +1,5 @@
+# yamllint disable rule:line-length
+---
 version: 1
 sources:
   argo:
@@ -13,3 +15,31 @@ files:
     sha256: b86789cb3d86ea05b238485f265ad397cceb465f0f46fdad27a0fa52864cf697
   - path: schemas/kubernetes/v1.36.2-standalone-strict/namespace-v1.json
     sha256: 324fae677b98d1a6d54340db0c334d053e8ffbafceb3f73326e41de2610d5843
+  - path: schemas/kubernetes/v1.36.2-standalone-strict/clusterrole-rbac-v1.json
+    sha256: 0777f91c4fa08bd3989b6db8c59dad0429a63dec8f59e883ff55c947a14d0d5f
+  - path: schemas/kubernetes/v1.36.2-standalone-strict/clusterrolebinding-rbac-v1.json
+    sha256: e44498f0ead69333bf1d066dec35470f8bf54898ec2647c9e60f8396aa26f04a
+  - path: schemas/kubernetes/v1.36.2-standalone-strict/configmap-v1.json
+    sha256: e0eaddebd677c08aa092b2da2264d86ac4fc34eed112b9fac2945b3f00c1e9b1
+  - path: schemas/kubernetes/v1.36.2-standalone-strict/daemonset-apps-v1.json
+    sha256: 1cee9fe50cbcbb91df4fa0eadbef134916c865037a0eba7675d4ae4c8e45a1b9
+  - path: schemas/kubernetes/v1.36.2-standalone-strict/deployment-apps-v1.json
+    sha256: 3725782fb01e3f27d8be2da565e2d653d7b78bf6debe5440804cea993c87b8f9
+  - path: schemas/kubernetes/v1.36.2-standalone-strict/job-batch-v1.json
+    sha256: f49fee30367890a492146d63c3c433a7853e9088ebfe9e25cc792ec4b1400f18
+  - path: schemas/kubernetes/v1.36.2-standalone-strict/networkpolicy-networking-v1.json
+    sha256: f6324cc464f62228b0418f438d167208e4f86c7e3677ba30f608e79a8b26ba79
+  - path: schemas/kubernetes/v1.36.2-standalone-strict/persistentvolume-v1.json
+    sha256: ddff73572bf0965cecf9c160949a1c416f4f9e8ade7f46a649767589a1e2783c
+  - path: schemas/kubernetes/v1.36.2-standalone-strict/persistentvolumeclaim-v1.json
+    sha256: 6136871ac0337f11a48da5231a2807407c7386967e3432f344141b902f6a538c
+  - path: schemas/kubernetes/v1.36.2-standalone-strict/role-rbac-v1.json
+    sha256: dfe8fb03b1642f985b57b12edd1727b6867c13ed4b6761ef81bdd51b1d236711
+  - path: schemas/kubernetes/v1.36.2-standalone-strict/rolebinding-rbac-v1.json
+    sha256: b12ea4163fc37df2e02192b4291b1b7c28836e3e7665d989dd538bfcffa10076
+  - path: schemas/kubernetes/v1.36.2-standalone-strict/service-v1.json
+    sha256: 8bf019854daed511e7c174896a898173fa65d88ec5937c687a37303d4cc9351b
+  - path: schemas/kubernetes/v1.36.2-standalone-strict/serviceaccount-v1.json
+    sha256: 8193d6c3561475c6d3d5c44e1faedb1df53905373d904bc17015694326d659cf
+  - path: schemas/kubernetes/v1.36.2-standalone-strict/storageclass-storage-v1.json
+    sha256: 9704bb88ec73ed37f8d565dbd2d2ee1e8ee61b5ec63c96a5a61926d6971ef3c9

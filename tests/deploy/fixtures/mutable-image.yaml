@@ -1,0 +1,13 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mutable
+  namespace: three-t-pipeline
+  annotations:
+    platform.three-t.dev/owner: kustomize
+spec:
+  template:
+    spec:
+      containers:
+        - name: mutable
+          image: example.invalid/platform:latest

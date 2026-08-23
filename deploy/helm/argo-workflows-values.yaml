@@ -1,0 +1,45 @@
+# yamllint disable rule:line-length
+---
+images:
+  tag: v4.0.7
+  pullPolicy: IfNotPresent
+crds:
+  install: true
+  keep: true
+  full: true
+  upgradeJob:
+    image:
+      repository: registry.k8s.io/kubectl
+      tag: v1.36.2@sha256:b0d792e0d8dfb9bb1b922b78b23137e2a34bb6f9667640353a9d2aadd1fd7761
+singleNamespace: true
+createAggregateRoles: false
+controller:
+  image:
+    registry: quay.io
+    repository: argoproj/workflow-controller
+    tag: v4.0.7@sha256:8e3ca93350c18348e50cdb1899f37d672f9995d9bf51412d86dee52da22fff19
+  workflowNamespaces:
+    - argo
+  rbac:
+    secretWhitelist: []
+    accessAllSecrets: false
+    writeConfigMaps: false
+executor:
+  image:
+    registry: quay.io
+    repository: argoproj/argoexec
+    tag: v4.0.7@sha256:eb2a7ca4d678a0c8c4f2de44f815f02d9eb12ac4609855f897744139aef220b4
+server:
+  enabled: true
+  image:
+    registry: quay.io
+    repository: argoproj/argocli
+    tag: v4.0.7@sha256:8c141b1acd26df3de70724aedaae0ee5a7d361cdf744a1daa6a1596f205cee50
+  authModes:
+    - server
+workflow:
+  serviceAccount:
+    create: false
+    name: three-t-runner
+  rbac:
+    create: false

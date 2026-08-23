@@ -1,0 +1,7 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  annotations:
+    platform.three-t.dev/owner: kustomize
+resources:
+  - https://example.invalid/manifests/main/platform.yaml
