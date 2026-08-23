@@ -1,0 +1,15 @@
+title = "3T pipeline secret scanning"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Ansible Vault ciphertext example"
+paths = ['''ansible/vault/example-secrets\.yml\.example''']
+regexes = ['''^\$ANSIBLE_VAULT;1\.2;AES256;example$''', '''^[0-9a-f]+$''']
+
+[[rules]]
+id = "kubernetes-literal-secret"
+description = "Literal Kubernetes secret assignment"
+regex = '''(?i)(password|secretKey|accessKey|token)\s*:\s*['\"]?[A-Za-z0-9/+_=.-]{8,}'''
+secretGroup = 0

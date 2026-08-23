@@ -1,0 +1,126 @@
+---
+- name: Bind explicitly supplied non-secret authorization inputs
+  ansible.builtin.set_fact:
+    platform_secrets_context: "{{ platform_context | default(none) }}"
+    platform_secrets_environment_class: >-
+      {{ platform_environment_class | default(none) }}
+    platform_secrets_authorized_contexts: >-
+      {{ platform_authorized_contexts | default([]) }}
+    platform_secrets_k3s_encryption_enabled: >-
+      {{ platform_k3s_secrets_encryption_enabled | default(false) }}
+
+- name: Require an explicit target and environment class
+  ansible.builtin.assert:
+    that:
+      - platform_secrets_context is string
+      - platform_secrets_context | length > 0
+      - platform_secrets_environment_class is string
+      - >-
+        platform_secrets_environment_class
+        in ['development', 'ephemeral', 'production']
+      - platform_secrets_authorized_contexts is sequence
+    fail_msg: explicit_context_and_environment_required
+
+- name: Categorically reject production mutation
+  ansible.builtin.fail:
+    msg: production_mutation_forbidden
+  when: platform_secrets_environment_class == 'production'
+
+- name: Require target context authorization
+  ansible.builtin.assert:
+    that:
+      - platform_secrets_context in platform_secrets_authorized_contexts
+    fail_msg: context_not_authorized
+
+- name: Require verified k3s secrets encryption
+  ansible.builtin.assert:
+    that:
+      - platform_secrets_k3s_encryption_enabled | bool
+    fail_msg: k3s_secret_encryption_required
+
+- name: Bind decrypted values only after the encryption gate
+  ansible.builtin.set_fact:
+    platform_secrets_values: "{{ platform_secret_values | default(none) }}"
+  no_log: true
+  diff: false
+
+- name: Validate the decrypted in-memory secret contract
+  ansible.builtin.assert:
+    that:
+      - platform_secrets_values is mapping
+      - >-
+        platform_secrets_values.keys() | sort
+        == platform_secrets_contracts.keys() | sort
+      - platform_secrets_values[item.key] is mapping
+      - >-
+        platform_secrets_values[item.key].keys() | sort
+        == item.value.keys | sort
+      - >-
+        platform_secrets_values[item.key].values()
+        | select('string') | list | length == item.value.keys | length
+      - >-
+        platform_secrets_values[item.key].values()
+        | reject('equalto', '') | list | length == item.value.keys | length
+    fail_msg: bootstrap_secrets_schema_invalid
+  loop: "{{ platform_secrets_contracts | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+  no_log: true
+  diff: false
+
+- name: Apply or server-dry-run the encrypted-at-rest Secrets
+  kubernetes.core.k8s:
+    context: "{{ platform_secrets_context }}"
+    state: present
+    apply: true
+    server_side_apply:
+      field_manager: three-t-pipeline-platform-secrets
+    validate:
+      fail_on_error: true
+      strict: true
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: "{{ item.key }}"
+        namespace: "{{ platform_secrets_namespace }}"
+      type: "{{ item.value.type }}"
+      data: >-
+        {{
+          dict(item.value.keys | zip(
+            item.value.keys
+            | map('extract', platform_secrets_values[item.key])
+            | map('b64encode')
+          ))
+        }}
+  loop: "{{ platform_secrets_contracts | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+  check_mode: "{{ platform_secrets_environment_class == 'development' }}"
+  register: platform_secrets_apply_results
+  no_log: true
+  diff: false
+
+- name: Build key-name-only evidence in memory
+  ansible.builtin.set_fact:
+    platform_secrets_evidence: >-
+      {{
+        (platform_secrets_evidence | default([]))
+        + [{
+          'name': item.item.key,
+          'namespace': platform_secrets_namespace,
+          'uid': item.result.metadata.uid | default('server-dry-run'),
+          'resourceVersion':
+            item.result.metadata.resourceVersion | default('server-dry-run'),
+          'key_names': item.item.value.keys | sort,
+          'key_names_sha256':
+            (item.item.value.keys | sort | join('\n') | hash('sha256'))
+        }]
+      }}
+  loop: "{{ platform_secrets_apply_results.results }}"
+  no_log: true
+  diff: false
+
+- name: Report redacted Secret evidence
+  ansible.builtin.debug:
+    var: platform_secrets_evidence

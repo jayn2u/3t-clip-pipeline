@@ -1,0 +1,26 @@
+---
+{
+  "platform_secrets_namespace": "three-t-pipeline",
+  "platform_secrets_contracts": {
+    "three-t-registry-pull": {
+      "type": "kubernetes.io/dockerconfigjson",
+      "keys": [".dockerconfigjson"]
+    },
+    "three-t-code-s3": {
+      "type": "Opaque",
+      "keys": ["endpoint", "bucket", "accessKey", "secretKey", "region"]
+    },
+    "three-t-data-s3": {
+      "type": "Opaque",
+      "keys": ["endpoint", "bucket", "accessKey", "secretKey", "region"]
+    },
+    "three-t-run-s3": {
+      "type": "Opaque",
+      "keys": ["endpoint", "bucket", "accessKey", "secretKey", "region"]
+    },
+    "three-t-minio-root": {
+      "type": "Opaque",
+      "keys": ["rootUser", "rootPassword"]
+    }
+  }
+}

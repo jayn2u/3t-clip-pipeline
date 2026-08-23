@@ -1,0 +1,8 @@
+---
+{
+  "platform_secrets_context": null,
+  "platform_secrets_environment_class": null,
+  "platform_secrets_authorized_contexts": [],
+  "platform_secrets_k3s_encryption_enabled": false,
+  "platform_secrets_values": null
+}
