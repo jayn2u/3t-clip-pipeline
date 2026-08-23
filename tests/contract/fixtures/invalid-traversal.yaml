@@ -1,0 +1,14 @@
+apiVersion: three-t-clip-pipeline/v1alpha1
+kind: Workload
+metadata: {name: invalid-traversal}
+spec:
+  bundle:
+    s3Uri: s3://code/bundle.tar.gz
+    sha256: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  execution:
+    image: registry.example/workload@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+    command: [python, run.py]
+    workingDirectory: ../escape
+  resources: {cpu: "1", memory: 1Gi}
+  timeouts: {}
+  outputs: {bucket: results, prefix: runs/invalid, requiredPaths: [metrics.json]}

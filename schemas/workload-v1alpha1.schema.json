@@ -1,0 +1,402 @@
+{
+  "$defs": {
+    "Bundle": {
+      "additionalProperties": false,
+      "description": "Immutable consumer bundle reference.",
+      "properties": {
+        "s3Uri": {
+          "minLength": 1,
+          "title": "S3Uri",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "s3Uri",
+        "sha256"
+      ],
+      "title": "Bundle",
+      "type": "object"
+    },
+    "CacheMapping": {
+      "additionalProperties": false,
+      "description": "Verified generic cache-object mapping.",
+      "properties": {
+        "destination": {
+          "minLength": 1,
+          "title": "Destination",
+          "type": "string"
+        },
+        "inventorySha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Inventorysha256",
+          "type": "string"
+        },
+        "readOnly": {
+          "default": true,
+          "title": "Readonly",
+          "type": "boolean"
+        },
+        "s3Uri": {
+          "minLength": 1,
+          "title": "S3Uri",
+          "type": "string"
+        }
+      },
+      "required": [
+        "s3Uri",
+        "destination",
+        "inventorySha256"
+      ],
+      "title": "CacheMapping",
+      "type": "object"
+    },
+    "ConfigMapValueFrom": {
+      "additionalProperties": false,
+      "description": "ConfigMap key reference variant.",
+      "properties": {
+        "configMapKeyRef": {
+          "$ref": "#/$defs/KeyReference"
+        }
+      },
+      "required": [
+        "configMapKeyRef"
+      ],
+      "title": "ConfigMapValueFrom",
+      "type": "object"
+    },
+    "EnvironmentVariable": {
+      "additionalProperties": false,
+      "description": "Environment variable populated only from an external reference.",
+      "properties": {
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "valueFrom": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SecretValueFrom"
+            },
+            {
+              "$ref": "#/$defs/ConfigMapValueFrom"
+            },
+            {
+              "$ref": "#/$defs/FieldValueFrom"
+            }
+          ],
+          "title": "Valuefrom"
+        }
+      },
+      "required": [
+        "name",
+        "valueFrom"
+      ],
+      "title": "EnvironmentVariable",
+      "type": "object"
+    },
+    "Execution": {
+      "additionalProperties": false,
+      "description": "Consumer image and argv execution boundary.",
+      "properties": {
+        "command": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Command",
+          "type": "array"
+        },
+        "image": {
+          "minLength": 1,
+          "title": "Image",
+          "type": "string"
+        },
+        "workingDirectory": {
+          "minLength": 1,
+          "title": "Workingdirectory",
+          "type": "string"
+        }
+      },
+      "required": [
+        "image",
+        "command",
+        "workingDirectory"
+      ],
+      "title": "Execution",
+      "type": "object"
+    },
+    "FieldReference": {
+      "additionalProperties": false,
+      "description": "Downward API field reference.",
+      "properties": {
+        "fieldPath": {
+          "minLength": 1,
+          "title": "Fieldpath",
+          "type": "string"
+        }
+      },
+      "required": [
+        "fieldPath"
+      ],
+      "title": "FieldReference",
+      "type": "object"
+    },
+    "FieldValueFrom": {
+      "additionalProperties": false,
+      "description": "Downward API reference variant.",
+      "properties": {
+        "fieldRef": {
+          "$ref": "#/$defs/FieldReference"
+        }
+      },
+      "required": [
+        "fieldRef"
+      ],
+      "title": "FieldValueFrom",
+      "type": "object"
+    },
+    "KeyReference": {
+      "additionalProperties": false,
+      "description": "Named key in a Kubernetes Secret or ConfigMap.",
+      "properties": {
+        "key": {
+          "minLength": 1,
+          "title": "Key",
+          "type": "string"
+        },
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "key"
+      ],
+      "title": "KeyReference",
+      "type": "object"
+    },
+    "Metadata": {
+      "additionalProperties": false,
+      "description": "Workload identity metadata.",
+      "properties": {
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "Metadata",
+      "type": "object"
+    },
+    "Outputs": {
+      "additionalProperties": false,
+      "description": "Publication destination and required result paths.",
+      "properties": {
+        "bucket": {
+          "minLength": 1,
+          "title": "Bucket",
+          "type": "string"
+        },
+        "prefix": {
+          "minLength": 1,
+          "title": "Prefix",
+          "type": "string"
+        },
+        "requiredPaths": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Requiredpaths",
+          "type": "array"
+        }
+      },
+      "required": [
+        "bucket",
+        "prefix",
+        "requiredPaths"
+      ],
+      "title": "Outputs",
+      "type": "object"
+    },
+    "Resources": {
+      "additionalProperties": false,
+      "description": "Generic scheduler resource requests.",
+      "properties": {
+        "cacheProfile": {
+          "default": "auto",
+          "minLength": 1,
+          "title": "Cacheprofile",
+          "type": "string"
+        },
+        "cpu": {
+          "minLength": 1,
+          "title": "Cpu",
+          "type": "string"
+        },
+        "gpuCount": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Gpucount",
+          "type": "integer"
+        },
+        "gpuResource": {
+          "default": "nvidia.com/gpu",
+          "minLength": 1,
+          "title": "Gpuresource",
+          "type": "string"
+        },
+        "memory": {
+          "minLength": 1,
+          "title": "Memory",
+          "type": "string"
+        }
+      },
+      "required": [
+        "cpu",
+        "memory"
+      ],
+      "title": "Resources",
+      "type": "object"
+    },
+    "SecretValueFrom": {
+      "additionalProperties": false,
+      "description": "Secret key reference variant.",
+      "properties": {
+        "secretKeyRef": {
+          "$ref": "#/$defs/KeyReference"
+        }
+      },
+      "required": [
+        "secretKeyRef"
+      ],
+      "title": "SecretValueFrom",
+      "type": "object"
+    },
+    "Timeouts": {
+      "additionalProperties": false,
+      "description": "Bounded lifecycle timeout values in seconds.",
+      "properties": {
+        "activeDeadlineSeconds": {
+          "default": 86400,
+          "exclusiveMinimum": 0,
+          "maximum": 604800,
+          "title": "Activedeadlineseconds",
+          "type": "integer"
+        },
+        "profileAcquireSeconds": {
+          "default": 900,
+          "exclusiveMinimum": 0,
+          "maximum": 7200,
+          "title": "Profileacquireseconds",
+          "type": "integer"
+        },
+        "publicationFinalRetrySeconds": {
+          "default": 300,
+          "exclusiveMinimum": 0,
+          "maximum": 3600,
+          "title": "Publicationfinalretryseconds",
+          "type": "integer"
+        },
+        "terminationGraceSeconds": {
+          "default": 120,
+          "exclusiveMinimum": 0,
+          "maximum": 600,
+          "title": "Terminationgraceseconds",
+          "type": "integer"
+        }
+      },
+      "title": "Timeouts",
+      "type": "object"
+    },
+    "WorkloadSpec": {
+      "additionalProperties": false,
+      "description": "Portable workload execution and publication specification.",
+      "properties": {
+        "bundle": {
+          "$ref": "#/$defs/Bundle"
+        },
+        "cacheMappings": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/CacheMapping"
+          },
+          "title": "Cachemappings",
+          "type": "array"
+        },
+        "environment": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/EnvironmentVariable"
+          },
+          "title": "Environment",
+          "type": "array"
+        },
+        "execution": {
+          "$ref": "#/$defs/Execution"
+        },
+        "outputs": {
+          "$ref": "#/$defs/Outputs"
+        },
+        "resources": {
+          "$ref": "#/$defs/Resources"
+        },
+        "timeouts": {
+          "$ref": "#/$defs/Timeouts"
+        }
+      },
+      "required": [
+        "bundle",
+        "execution",
+        "resources",
+        "timeouts",
+        "outputs"
+      ],
+      "title": "WorkloadSpec",
+      "type": "object"
+    }
+  },
+  "$id": "https://schemas.three-t.dev/workload-v1alpha1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Frozen three-t-clip-pipeline/v1alpha1 workload contract.",
+  "properties": {
+    "apiVersion": {
+      "const": "three-t-clip-pipeline/v1alpha1",
+      "title": "Apiversion",
+      "type": "string"
+    },
+    "kind": {
+      "const": "Workload",
+      "title": "Kind",
+      "type": "string"
+    },
+    "metadata": {
+      "$ref": "#/$defs/Metadata"
+    },
+    "spec": {
+      "$ref": "#/$defs/WorkloadSpec"
+    }
+  },
+  "required": [
+    "apiVersion",
+    "kind",
+    "metadata",
+    "spec"
+  ],
+  "title": "three-t-clip-pipeline/v1alpha1 Workload",
+  "type": "object"
+}
