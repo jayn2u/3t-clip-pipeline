@@ -1,0 +1,15 @@
+version: 1
+sources:
+  argo:
+    repository: https://github.com/argoproj/argo-workflows
+    commit: 9aeb47ce10339f4a14819335c6a00027353ba0df
+    sourcePath: manifests/base/crds/full/argoproj.io_workflows.yaml
+  kubernetes:
+    repository: https://github.com/yannh/kubernetes-json-schema
+    commit: 5a69f8365c9d3ed7de997f5365e22481cf775fa2
+    sourcePath: v1.36.2-standalone-strict
+files:
+  - path: schemas/argo/v4.0.7/workflow-v1alpha1.json
+    sha256: b86789cb3d86ea05b238485f265ad397cceb465f0f46fdad27a0fa52864cf697
+  - path: schemas/kubernetes/v1.36.2-standalone-strict/namespace-v1.json
+    sha256: 324fae677b98d1a6d54340db0c334d053e8ffbafceb3f73326e41de2610d5843

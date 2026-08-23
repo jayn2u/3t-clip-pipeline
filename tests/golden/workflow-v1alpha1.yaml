@@ -1,0 +1,222 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  labels:
+    app.kubernetes.io/part-of: three-t-pipeline
+    three-t.dev/run-uid: 6998c35309615644f8deb3b2410a7a1b1bf7d4b247d91dbd9f3d77963f53cbb4
+  name: minimal-6998c3530961
+  namespace: three-t-pipeline
+spec:
+  activeDeadlineSeconds: 86400
+  entrypoint: pipeline
+  onExit: commit-results
+  podGC:
+    strategy: OnWorkflowCompletion
+  serviceAccountName: pipeline-runner
+  templates:
+  - dag:
+      tasks:
+      - name: preflight
+        template: preflight
+      - dependencies:
+        - preflight
+        name: acquire-profile
+        template: acquire-profile
+      - dependencies:
+        - acquire-profile
+        name: prepare-cache
+        template: prepare-cache
+      - dependencies:
+        - prepare-cache
+        name: run
+        template: workload
+    name: pipeline
+  - container:
+      args:
+      - runtime
+      - init
+      - --phase
+      - preflight
+      command:
+      - 3t-pipeline
+      image: docker.io/library/python:3.12.11-slim-bookworm@sha256:519591d6871b7bc437060736b9f7456b8731f1499a57e22e6c285135ae657bf7
+      name: preflight
+    name: preflight
+    retryStrategy:
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 60s
+      limit: '2'
+      retryPolicy: OnError
+  - container:
+      args:
+      - runtime
+      - init
+      - --phase
+      - acquire-profile
+      command:
+      - 3t-pipeline
+      image: docker.io/library/python:3.12.11-slim-bookworm@sha256:519591d6871b7bc437060736b9f7456b8731f1499a57e22e6c285135ae657bf7
+      name: acquire-profile
+    name: acquire-profile
+    retryStrategy:
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 60s
+      limit: '2'
+      retryPolicy: OnError
+  - container:
+      args:
+      - runtime
+      - init
+      - --phase
+      - prepare-cache
+      command:
+      - 3t-pipeline
+      image: docker.io/library/python:3.12.11-slim-bookworm@sha256:519591d6871b7bc437060736b9f7456b8731f1499a57e22e6c285135ae657bf7
+      name: prepare-cache
+    name: prepare-cache
+    retryStrategy:
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 60s
+      limit: '2'
+      retryPolicy: OnError
+  - container:
+      command:
+      - python
+      - run.py
+      env: []
+      image: registry.example/workload@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+      name: main
+      resources:
+        requests:
+          cpu: '1'
+          memory: 1Gi
+          nvidia.com/gpu: '0'
+      volumeMounts:
+      - mountPath: /workspace/cache
+        name: cache
+        readOnly: true
+      - mountPath: /workspace/input
+        name: input
+        readOnly: true
+      - mountPath: /workspace/output
+        name: output
+      workingDir: /workspace/input/workspace
+    initContainers:
+    - args:
+      - runtime
+      - init
+      command:
+      - 3t-pipeline
+      env:
+      - name: RUN_UID
+        value: 6998c35309615644f8deb3b2410a7a1b1bf7d4b247d91dbd9f3d77963f53cbb4
+      - name: OUTPUT_BUCKET
+        value: pipeline-results
+      - name: OUTPUT_PREFIX
+        value: runs/minimal
+      - name: BUNDLE_S3_URI
+        value: s3://pipeline-code/bundles/minimal.tar.gz
+      - name: BUNDLE_SHA256
+        value: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      - name: CACHE_PROFILE
+        value: auto
+      - name: CACHE_MAPPINGS_JSON
+        value: '[]'
+      image: docker.io/library/python:3.12.11-slim-bookworm@sha256:519591d6871b7bc437060736b9f7456b8731f1499a57e22e6c285135ae657bf7
+      name: bundle-init
+      volumeMounts:
+      - mountPath: /workspace/cache
+        name: cache
+      - mountPath: /workspace/control
+        name: control
+      - mountPath: /workspace/input
+        name: input
+    - args:
+      - runtime
+      - publisher
+      command:
+      - 3t-pipeline
+      env:
+      - name: RUN_UID
+        value: 6998c35309615644f8deb3b2410a7a1b1bf7d4b247d91dbd9f3d77963f53cbb4
+      - name: OUTPUT_BUCKET
+        value: pipeline-results
+      - name: OUTPUT_PREFIX
+        value: runs/minimal
+      - name: REQUIRED_PATHS_JSON
+        value: '["metrics.json"]'
+      - name: PUBLICATION_FINAL_RETRY_SECONDS
+        value: '300'
+      - name: TERMINATION_GRACE_SECONDS
+        value: '120'
+      image: docker.io/library/python:3.12.11-slim-bookworm@sha256:519591d6871b7bc437060736b9f7456b8731f1499a57e22e6c285135ae657bf7
+      name: artifact-publisher
+      restartPolicy: Always
+      volumeMounts:
+      - mountPath: /workspace/control
+        name: control
+      - mountPath: /workspace/output
+        name: output
+        readOnly: true
+    name: workload
+    podSpecPatch: 'terminationGracePeriodSeconds: 120
+
+      '
+    retryStrategy:
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 120s
+      limit: '1'
+      retryPolicy: OnError
+  - container:
+      args:
+      - runtime
+      - finalize
+      command:
+      - 3t-pipeline
+      env:
+      - name: WORKFLOW_NAME
+        value: '{{workflow.name}}'
+      - name: WORKFLOW_UID
+        value: '{{workflow.uid}}'
+      - name: WORKFLOW_STATUS
+        value: '{{workflow.status}}'
+      - name: RUN_UID
+        value: 6998c35309615644f8deb3b2410a7a1b1bf7d4b247d91dbd9f3d77963f53cbb4
+      - name: OUTPUT_BUCKET
+        value: pipeline-results
+      - name: OUTPUT_PREFIX
+        value: runs/minimal
+      - name: REQUIRED_PATHS_JSON
+        value: '["metrics.json"]'
+      image: docker.io/library/python:3.12.11-slim-bookworm@sha256:519591d6871b7bc437060736b9f7456b8731f1499a57e22e6c285135ae657bf7
+      name: commit-results
+    name: commit-results
+    retryStrategy:
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 120s
+      limit: '2'
+      retryPolicy: OnError
+  ttlStrategy:
+    secondsAfterCompletion: 86400
+  volumeClaimGC:
+    strategy: OnWorkflowCompletion
+  volumes:
+  - emptyDir: {}
+    name: control
+  - name: cache
+    persistentVolumeClaim:
+      claimName: three-t-cache
+  - emptyDir: {}
+    name: input
+  - emptyDir: {}
+    name: output

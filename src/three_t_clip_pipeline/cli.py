@@ -1,7 +1,8 @@
 """Command-line entry point for the platform package."""
 
 from pathlib import Path
-from typing import Annotated
+from tempfile import TemporaryDirectory
+from typing import Annotated, Final
 
 import typer
 from pydantic import ValidationError
@@ -9,6 +10,14 @@ from pydantic import ValidationError
 from three_t_clip_pipeline import __version__
 from three_t_clip_pipeline.contract import canonical_json_bytes, load_workload, validation_codes
 from three_t_clip_pipeline.contract.io import WorkloadReadError, WorkloadYamlError
+from three_t_clip_pipeline.render import (
+    ClientValidationError,
+    SchemaLockError,
+    render_workflow_bytes,
+    run_client_validation,
+)
+
+_STDOUT_PATH: Final = Path("-")
 
 app = typer.Typer(
     name="3t-pipeline",
@@ -63,6 +72,63 @@ def validate_contract(
         canonical_json.parent.mkdir(parents=True, exist_ok=True)
         _ = canonical_json.write_bytes(canonical_json_bytes(workload))
     typer.echo("CONTRACT_OK")
+
+
+@app.command("plan")
+def plan_workload(
+    workload_path: Annotated[Path, typer.Argument(exists=False, dir_okay=False)],
+    *,
+    output: Annotated[
+        Path, typer.Option(help="Workflow YAML output path, or '-' for stdout.")
+    ] = _STDOUT_PATH,
+) -> None:
+    """Render a validated workload without contacting external services."""
+    try:
+        workload = load_workload(workload_path)
+    except ValidationError as error:
+        typer.echo(f"PLAN_INVALID {','.join(validation_codes(error))}", err=True)
+        raise typer.Exit(code=2) from error
+    except (WorkloadReadError, WorkloadYamlError) as error:
+        typer.echo(f"PLAN_INVALID input_error: {error}", err=True)
+        raise typer.Exit(code=2) from error
+    rendered = render_workflow_bytes(workload)
+    if output == _STDOUT_PATH:
+        typer.echo(rendered.decode(), nl=False)
+        return
+    output.parent.mkdir(parents=True, exist_ok=True)
+    _ = output.write_bytes(rendered)
+
+
+@app.command("validate")
+def validate_workload(
+    workload_path: Annotated[Path, typer.Argument(exists=False, dir_okay=False)],
+    *,
+    client: Annotated[bool, typer.Option(help="Use only the packaged local validator.")] = False,
+) -> None:
+    """Render and validate a workload with the explicitly selected validation level."""
+    if not client:
+        typer.echo("VALIDATION_LEVEL_REQUIRED --client", err=True)
+        raise typer.Exit(code=2)
+    try:
+        workload = load_workload(workload_path)
+    except ValidationError as error:
+        typer.echo(f"CLIENT_INVALID {','.join(validation_codes(error))}", err=True)
+        raise typer.Exit(code=2) from error
+    except (WorkloadReadError, WorkloadYamlError) as error:
+        typer.echo(f"CLIENT_INVALID input_error: {error}", err=True)
+        raise typer.Exit(code=2) from error
+    root = Path.cwd()
+    cache = root / ".cache"
+    cache.mkdir(parents=True, exist_ok=True)
+    try:
+        with TemporaryDirectory(prefix="3t-client-", dir=cache) as temporary_directory:
+            manifest = Path(temporary_directory) / "workflow.yaml"
+            _ = manifest.write_bytes(render_workflow_bytes(workload))
+            output = run_client_validation(manifest, root)
+    except (ClientValidationError, SchemaLockError) as error:
+        typer.echo(f"CLIENT_INVALID {error}", err=True)
+        raise typer.Exit(code=2) from error
+    typer.echo(output, nl=False)
 
 
 def main() -> None:
