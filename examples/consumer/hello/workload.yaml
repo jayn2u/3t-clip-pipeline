@@ -1,0 +1,24 @@
+apiVersion: three-t-clip-pipeline/v1alpha1
+kind: Workload
+metadata:
+  name: hello
+spec:
+  bundle:
+    s3Uri: s3://pipeline-code/hello.bundle
+    sha256: 56d068f073ea8f4f326d2f6b5cec75ac970842583a57ddb6c8ed64cbbac02918
+  execution:
+    image: registry.example/hello@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+    command:
+      - python
+      - run.py
+    workingDirectory: workspace
+  resources:
+    cpu: "1"
+    memory: 128Mi
+  timeouts: {}
+  outputs:
+    bucket: pipeline-results
+    prefix: runs/hello
+    requiredPaths:
+      - provenance.json
+      - result.json
