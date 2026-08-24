@@ -8,6 +8,19 @@ import typer
 from pydantic import ValidationError
 
 from three_t_clip_pipeline import __version__
+from three_t_clip_pipeline.clients import ClientExecutionError
+from three_t_clip_pipeline.commands import (
+    EnvironmentClass,
+    ExitCode,
+    Operation,
+    authorize,
+    dependencies,
+)
+from three_t_clip_pipeline.commands.context import ContextRequiredError, parse_context
+from three_t_clip_pipeline.commands.loading import CommandInputError, render_workload_path
+from three_t_clip_pipeline.commands.online import register_online_commands
+from three_t_clip_pipeline.commands.operations import server_validate
+from three_t_clip_pipeline.commands.security import ForbiddenSecretOption
 from three_t_clip_pipeline.contract import canonical_json_bytes, load_workload, validation_codes
 from three_t_clip_pipeline.contract.io import WorkloadReadError, WorkloadYamlError
 from three_t_clip_pipeline.render import (
@@ -28,6 +41,7 @@ app = typer.Typer(
 contract_app = typer.Typer(help="Validate frozen workload contracts.", no_args_is_help=True)
 app.add_typer(contract_app, name="contract")
 app.add_typer(runtime_app, name="runtime")
+register_online_commands(app)
 
 
 @app.callback(invoke_without_command=True)
@@ -102,15 +116,48 @@ def plan_workload(
 
 
 @app.command("validate")
-def validate_workload(
+def validate_workload(  # noqa: PLR0913 -- CLI flags are independent user inputs.
     workload_path: Annotated[Path, typer.Argument(exists=False, dir_okay=False)],
     *,
     client: Annotated[bool, typer.Option(help="Use only the packaged local validator.")] = False,
+    server: Annotated[
+        bool, typer.Option(help="Use authenticated server-side dry-run validation.")
+    ] = False,
+    context: Annotated[
+        str | None, typer.Option(help="Explicit Kubernetes context for server validation.")
+    ] = None,
+    environment_class: Annotated[
+        EnvironmentClass | None,
+        typer.Option(help="Explicit environment trust class for server validation."),
+    ] = None,
+    forbidden_secret: ForbiddenSecretOption = None,
 ) -> None:
     """Render and validate a workload with the explicitly selected validation level."""
-    if not client:
-        typer.echo("VALIDATION_LEVEL_REQUIRED --client", err=True)
+    _ = forbidden_secret
+    if client == server:
+        typer.echo("VALIDATION_LEVEL_REQUIRED exactly_one_of=--client,--server", err=True)
         raise typer.Exit(code=2)
+    if server:
+        if context is None or environment_class is None:
+            typer.echo("EXPLICIT_CONTEXT_AND_ENVIRONMENT_REQUIRED", err=True)
+            raise typer.Exit(code=ExitCode.INPUT_INVALID)
+        try:
+            explicit_context = parse_context(context)
+        except ContextRequiredError as error:
+            typer.echo(str(error), err=True)
+            raise typer.Exit(code=ExitCode.INPUT_INVALID) from error
+        authorize(Operation.SERVER_VALIDATE, environment_class)
+        try:
+            rendered = render_workload_path(workload_path)
+            server_validate(dependencies.kubernetes_client(explicit_context), rendered)
+        except CommandInputError as error:
+            typer.echo(f"SERVER_INVALID {error}", err=True)
+            raise typer.Exit(code=ExitCode.INPUT_INVALID) from error
+        except ClientExecutionError as error:
+            typer.echo(str(error), err=True)
+            raise typer.Exit(code=ExitCode.CLIENT_FAILED) from error
+        typer.echo("SERVER_VALID READ_ONLY")
+        return
     try:
         workload = load_workload(workload_path)
     except ValidationError as error:
