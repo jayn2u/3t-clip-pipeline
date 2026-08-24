@@ -1,0 +1,4 @@
+ARG PLATFORM_IMAGE
+FROM ${PLATFORM_IMAGE}
+COPY hello.py /opt/three-t-smoke/hello.py
+ENTRYPOINT ["python", "/opt/three-t-smoke/hello.py"]

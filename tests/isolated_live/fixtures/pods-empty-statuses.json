@@ -1,0 +1,15 @@
+{
+  "items": [
+    {
+      "spec": {
+        "containers": [
+          {
+            "name": "hello",
+            "image": "localhost:5001/three-t-hello@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ]
+      },
+      "status": {"containerStatuses": []}
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "captured": {
+    "registryContainerId": "registry-created-by-task",
+    "registryTaskToken": "task-token",
+    "kindNetworkId": "network-created-by-task",
+    "kindNodeIds": ["kind-node-created-by-task"],
+    "kindNetworkMemberIds": ["kind-node-created-by-task", "registry-created-by-task"]
+  },
+  "current": {
+    "registryContainerId": "registry-created-by-task",
+    "registryTaskToken": "task-token",
+    "kindNetworkId": "network-created-by-task",
+    "kindNodeIds": ["kind-node-replacement"],
+    "kindNetworkMemberIds": ["kind-node-replacement", "registry-created-by-task"]
+  }
+}

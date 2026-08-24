@@ -1,0 +1,79 @@
+{
+  "$defs": {
+    "EvidenceKind": {
+      "description": "Allowed read-only collector output classes.",
+      "enum": [
+        "kubernetes-pv",
+        "findmnt",
+        "directory-stat",
+        "backup-inventory",
+        "restore-inventory",
+        "quiescence",
+        "manifest-diff",
+        "server-dry-run",
+        "rollback"
+      ],
+      "title": "EvidenceKind",
+      "type": "string"
+    },
+    "EvidenceRecord": {
+      "additionalProperties": false,
+      "description": "Provenance for one already-captured collector output file.",
+      "properties": {
+        "capturedFile": {
+          "minLength": 1,
+          "title": "Capturedfile",
+          "type": "string"
+        },
+        "contentSha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Contentsha256",
+          "type": "string"
+        },
+        "exitCode": {
+          "title": "Exitcode",
+          "type": "integer"
+        },
+        "sourceDescriptor": {
+          "minLength": 1,
+          "title": "Sourcedescriptor",
+          "type": "string"
+        },
+        "sourceKind": {
+          "$ref": "#/$defs/EvidenceKind"
+        }
+      },
+      "required": [
+        "sourceKind",
+        "sourceDescriptor",
+        "exitCode",
+        "contentSha256",
+        "capturedFile"
+      ],
+      "title": "EvidenceRecord",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Complete set of collector provenance records for one decision.",
+  "properties": {
+    "schema": {
+      "const": "three-t-pipeline/cutover-readiness-v2",
+      "title": "Schema",
+      "type": "string"
+    },
+    "sources": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/EvidenceRecord"
+      },
+      "title": "Sources",
+      "type": "array"
+    }
+  },
+  "required": [
+    "schema"
+  ],
+  "title": "ReadinessBundle",
+  "type": "object"
+}

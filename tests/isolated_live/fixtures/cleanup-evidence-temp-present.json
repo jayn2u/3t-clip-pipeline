@@ -1,0 +1,15 @@
+{
+  "port5001Free": true,
+  "port19000Free": true,
+  "registryAbsent": true,
+  "registryContainerIdAbsent": true,
+  "clusterAbsent": true,
+  "kindNodeIdsAbsent": true,
+  "kindNetworkIdAbsent": true,
+  "containersUnchanged": true,
+  "networksUnchanged": true,
+  "tempAbsent": false,
+  "pidAbsent": true,
+  "kubeconfigIsolated": true,
+  "userKubeconfigUnchanged": true
+}
