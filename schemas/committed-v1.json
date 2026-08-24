@@ -1,0 +1,104 @@
+{
+  "$defs": {
+    "ImmutableObject": {
+      "additionalProperties": false,
+      "description": "HEAD-verifiable identity for one immutable run object.",
+      "properties": {
+        "key": {
+          "minLength": 1,
+          "title": "Key",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size": {
+          "minimum": 0,
+          "title": "Size",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "key",
+        "size",
+        "sha256"
+      ],
+      "title": "ImmutableObject",
+      "type": "object"
+    }
+  },
+  "$id": "https://schemas.three-t.dev/committed-v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Canonical committed-v1 reader boundary.",
+  "properties": {
+    "bundleDigest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Bundledigest",
+      "type": "string"
+    },
+    "mainFinishedAt": {
+      "minLength": 1,
+      "title": "Mainfinishedat",
+      "type": "string"
+    },
+    "objects": {
+      "items": {
+        "$ref": "#/$defs/ImmutableObject"
+      },
+      "title": "Objects",
+      "type": "array"
+    },
+    "platformImageDigest": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "title": "Platformimagedigest",
+      "type": "string"
+    },
+    "provenanceKey": {
+      "minLength": 1,
+      "title": "Provenancekey",
+      "type": "string"
+    },
+    "runUid": {
+      "minLength": 1,
+      "title": "Runuid",
+      "type": "string"
+    },
+    "schema": {
+      "const": "committed/v1",
+      "title": "Schema",
+      "type": "string"
+    },
+    "workflowUid": {
+      "minLength": 1,
+      "title": "Workflowuid",
+      "type": "string"
+    },
+    "workloadImageDigest": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "title": "Workloadimagedigest",
+      "type": "string"
+    },
+    "workloadStatus": {
+      "const": "Succeeded",
+      "title": "Workloadstatus",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema",
+    "runUid",
+    "workflowUid",
+    "workloadImageDigest",
+    "platformImageDigest",
+    "bundleDigest",
+    "objects",
+    "provenanceKey",
+    "workloadStatus",
+    "mainFinishedAt"
+  ],
+  "title": "committed/v1",
+  "type": "object"
+}
