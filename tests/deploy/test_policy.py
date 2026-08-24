@@ -146,6 +146,42 @@ def test_example_overlay_inventory_has_one_owner(tmp_path: Path) -> None:
     assert all(_string_field(item, "owner") in {"helm", "kustomize"} for item in resources)
 
 
+def test_example_overlay_consumes_reviewed_runtime_digest(tmp_path: Path) -> None:
+    # Given: the committed runtime image lock has the independently reviewed digest.
+    image_lock = (REPOSITORY_ROOT / "deploy/images.lock.yaml").read_text(encoding="utf-8")
+    runtime_image = (
+        "ghcr.io/jayn2u/3t-clip-pipeline-runtime@sha256:"
+        "9ba8cd5a2a1d8c6882edfe80ab10c0df4d0c7ca320626e8aed74344367eafe42"
+    )
+    assert "reviewStatus: reviewed" in image_lock
+    assert f"runtimeImage: {runtime_image}" in image_lock
+    output = tmp_path / "platform.yaml"
+    inventory = tmp_path / "resources.json"
+
+    # When: the example platform overlay is rendered.
+    result = subprocess.run(
+        [
+            str(RENDERER),
+            "--overlay",
+            "example",
+            "--output",
+            str(output),
+            "--inventory",
+            str(inventory),
+        ],
+        cwd=REPOSITORY_ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    # Then: one Kustomize-owned ConfigMap carries the reviewed lock value by digest.
+    assert result.returncode == 0
+    rendered = output.read_text(encoding="utf-8")
+    assert rendered.count(runtime_image) == 1
+    assert "name: three-t-runtime-image" in rendered
+
+
 def test_lock_contains_exact_frozen_versions_and_digests() -> None:
     lock_path = REPOSITORY_ROOT / "deploy/versions.lock.yaml"
     lock = lock_path.read_text(encoding="utf-8")

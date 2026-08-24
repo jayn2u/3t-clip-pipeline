@@ -1,0 +1,20 @@
+# yamllint disable rule:line-length
+---
+schemaVersion: 1
+releaseRepository: ghcr.io/jayn2u/3t-clip-pipeline-runtime
+reviewStatus: reviewed
+runtimeImage: ghcr.io/jayn2u/3t-clip-pipeline-runtime@sha256:9ba8cd5a2a1d8c6882edfe80ab10c0df4d0c7ca320626e8aed74344367eafe42
+kindNodeImage: docker.io/kindest/node:v1.35.0@sha256:4613778f3cfcd10e615029370f5786704559103cf27bef934597ba562b269661
+localRegistryImage: docker.io/library/registry:2.8.3@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373
+promotion:
+  reviewRequired: true
+  autoUpdate: false
+  protectedEnvironment: runtime-image-release
+retention:
+  preserveReferencedDigests: true
+  preserveRunProvenanceDigests: true
+  garbageCollectReferencedDigests: false
+localPushException:
+  owner: task-14
+  host: 127.0.0.1
+  credentials: forbidden

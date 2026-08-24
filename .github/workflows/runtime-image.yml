@@ -1,0 +1,130 @@
+# yamllint disable rule:line-length
+# yamllint disable rule:truthy
+---
+name: Runtime image release
+
+on:
+  push:
+    branches: [develop]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+
+concurrency:
+  group: runtime-image-release-${{ github.sha }}
+  cancel-in-progress: true
+
+env:
+  SOURCE_DATE_EPOCH: "0"
+  REGISTRY_IMAGE: ghcr.io/jayn2u/3t-clip-pipeline-runtime
+  DOCKER_CONFIG: .cache/docker
+  BUILDX_CONFIG: .cache/buildx
+  UV_VERSION: 0.11.33
+  BUILDX_VERSION: 0.34.1
+  UV_TAR_SHA256: aa9fca823c03289fb6e3460b3dc864f3ea895cafaf9b99247701a67b17d1b018
+  BUILDX_SHA256: f1332ddb9010bd0b72628266c3a906d9a6979848033df4c8d9bd2cd113bae12b
+  KUBECTL_SHA256: 1e9045ec32bea85da43de85f0065358529ea7c7a152eca78154fba5b58c27d82
+  HELM_TAR_SHA256: e9b88b4ee95b18c706839c28d3a0220e5bc470e9cd9262410c90793c45ff8b7c
+  KIND_SHA256: eb244cbafcc157dff60cf68693c14c9a75c4e6e6fedaf9cd71c58117cb93e3fa
+  KUBECONFORM_TAR_SHA256: c31518ddd122663b3f3aa874cfe8178cb0988de944f29c74a0b9260920d115d3
+  K3S_SHA256: 65a55ec56c24eab44383086166ec620a491952b7e23941a49ddca6e8a4c4b4de
+
+jobs:
+  publish:
+    if: github.ref == 'refs/heads/develop'
+    environment: runtime-image-release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - uses: docker/setup-docker-action@77e84dbf09b47d1e29270283c22f16145aa85ca1
+        with:
+          version: v29.4.0
+      - name: Install checksum-verified uv and Buildx
+        run: |
+          mkdir -p .cache/ci/bin .cache/ci/downloads .cache/ci/extract "$DOCKER_CONFIG/cli-plugins"
+          curl --fail --location --retry 3 \
+            "https://github.com/astral-sh/uv/releases/download/$UV_VERSION/uv-x86_64-unknown-linux-gnu.tar.gz" \
+            --output .cache/ci/downloads/uv.tar.gz
+          printf '%s  %s\n' "$UV_TAR_SHA256" .cache/ci/downloads/uv.tar.gz | sha256sum --check --strict
+          tar -xzf .cache/ci/downloads/uv.tar.gz -C .cache/ci/extract
+          install -m 0755 .cache/ci/extract/uv-x86_64-unknown-linux-gnu/uv .cache/ci/bin/uv
+          curl --fail --location --retry 3 \
+            "https://github.com/docker/buildx/releases/download/v$BUILDX_VERSION/buildx-v$BUILDX_VERSION.linux-amd64" \
+            --output .cache/ci/downloads/buildx
+          printf '%s  %s\n' "$BUILDX_SHA256" .cache/ci/downloads/buildx | sha256sum --check --strict
+          install -m 0755 .cache/ci/downloads/buildx "$DOCKER_CONFIG/cli-plugins/docker-buildx"
+          printf '%s\n' "$PWD/.cache/ci/bin" >> "$GITHUB_PATH"
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Verify frozen checksums
+        run: |
+          mkdir -p .cache/ci .cache/docker .cache/buildx
+          grep -F "$UV_TAR_SHA256" ci/tools.lock.yaml
+          grep -F "$BUILDX_SHA256" ci/tools.lock.yaml
+          grep -F "$KUBECTL_SHA256" ci/tools.lock.yaml
+          grep -F "$HELM_TAR_SHA256" ci/tools.lock.yaml
+          grep -F "$KIND_SHA256" ci/tools.lock.yaml
+          grep -F "$KUBECONFORM_TAR_SHA256" ci/tools.lock.yaml
+          grep -F "$K3S_SHA256" ci/tools.lock.yaml
+      - id: build
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf
+        with:
+          context: .
+          file: Containerfile.runtime
+          push: true
+          tags: ${{ env.REGISTRY_IMAGE }}:sha-${{ github.sha }}
+          platforms: linux/amd64
+          sbom: true
+          provenance: mode=max
+          cache-from: type=local,src=.cache/buildx/input
+          cache-to: type=local,dest=.cache/buildx/output,mode=max
+      - id: select
+        name: Select canonical runtime manifest
+        env:
+          D_envelope: ${{ steps.build.outputs.digest }}
+        run: |
+          test -n "$D_envelope"
+          docker buildx imagetools inspect "$REGISTRY_IMAGE@$D_envelope"
+          docker buildx imagetools inspect "$REGISTRY_IMAGE@$D_envelope" \
+            --raw > .cache/ci/runtime-envelope-index.json
+          uv run scripts/image-metadata.py select-runtime \
+            --index .cache/ci/runtime-envelope-index.json \
+            --envelope-digest "$D_envelope" \
+            --output .cache/ci/runtime-metadata.json \
+            --github-output "$GITHUB_OUTPUT"
+      - name: Verify runtime and create review proposal
+        env:
+          D_envelope: ${{ steps.build.outputs.digest }}
+          D_runtime: ${{ steps.select.outputs.runtime-digest }}
+        run: |
+          test -n "$D_runtime"
+          test "$D_runtime" != "$D_envelope"
+          docker buildx imagetools inspect "$REGISTRY_IMAGE@$D_runtime"
+          docker buildx imagetools inspect "$REGISTRY_IMAGE@$D_envelope" \
+            --format '{{ json .SBOM }}' > .cache/ci/runtime-sbom.json
+          docker buildx imagetools inspect "$REGISTRY_IMAGE@$D_envelope" \
+            --format '{{ json .Provenance }}' > .cache/ci/runtime-provenance.json
+          test -s .cache/ci/runtime-sbom.json
+          test -s .cache/ci/runtime-provenance.json
+          uv run scripts/image-metadata.py propose \
+            --metadata .cache/ci/runtime-metadata.json \
+            --commit-sha "${{ github.sha }}" \
+            --output .cache/ci/images-lock-proposal.yaml
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: runtime-image-${{ github.sha }}-sbom-provenance-proposal
+          path: |
+            .cache/ci/runtime-metadata.json
+            .cache/ci/runtime-envelope-index.json
+            .cache/ci/runtime-sbom.json
+            .cache/ci/runtime-provenance.json
+            .cache/ci/images-lock-proposal.yaml
+          if-no-files-found: error
+          retention-days: 90

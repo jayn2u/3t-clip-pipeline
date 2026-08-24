@@ -1,0 +1,36 @@
+# syntax=docker/dockerfile:1.20@sha256:26147acbda4f14c5add9946e2fd2ed543fc402884fd75146bd342a7f6271dc1d
+ARG SOURCE_DATE_EPOCH=0
+FROM docker.io/library/python:3.12.11-slim-bookworm@sha256:519591d6871b7bc437060736b9f7456b8731f1499a57e22e6c285135ae657bf7 AS builder
+ARG SOURCE_DATE_EPOCH
+
+ADD --checksum=sha256:aa9fca823c03289fb6e3460b3dc864f3ea895cafaf9b99247701a67b17d1b018 \
+    https://github.com/astral-sh/uv/releases/download/0.11.33/uv-x86_64-unknown-linux-gnu.tar.gz \
+    /tmp/uv.tar.gz
+RUN tar -xzf /tmp/uv.tar.gz -C /usr/local/bin --strip-components=1 \
+    uv-x86_64-unknown-linux-gnu/uv uv-x86_64-unknown-linux-gnu/uvx
+
+WORKDIR /workspace
+COPY pyproject.toml uv.lock README.md ./
+COPY src ./src
+ENV UV_PROJECT_ENVIRONMENT=/opt/runtime-venv \
+    UV_CACHE_DIR=/tmp/uv-cache \
+    UV_LINK_MODE=copy
+RUN --mount=type=cache,target=/tmp/uv-cache \
+    uv sync --locked --no-dev --no-editable \
+    && mkdir -p /runtime-root/opt \
+    && mv /opt/runtime-venv /runtime-root/opt/runtime-venv \
+    && find /runtime-root -name RECORD -exec sed -i '\#/uv_cache\.json,#d' {} + \
+    && find /runtime-root -name uv_cache.json -delete \
+    && find /runtime-root -exec touch -h -d "@${SOURCE_DATE_EPOCH}" {} +
+
+FROM docker.io/library/python:3.12.11-slim-bookworm@sha256:519591d6871b7bc437060736b9f7456b8731f1499a57e22e6c285135ae657bf7
+
+COPY --from=builder --chown=65532:65532 /runtime-root/ /
+
+ENV HOME=/tmp \
+    PATH=/opt/runtime-venv/bin:$PATH \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+USER 65532:65532
+WORKDIR /tmp
+ENTRYPOINT ["3t-pipeline"]

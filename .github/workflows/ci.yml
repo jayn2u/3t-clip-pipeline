@@ -1,0 +1,136 @@
+# yamllint disable rule:line-length
+# yamllint disable rule:truthy
+---
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [develop]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  SOURCE_DATE_EPOCH: "0"
+  UV_CACHE_DIR: .cache/ci/uv
+  DOCKER_CONFIG: .cache/docker
+  BUILDX_CONFIG: .cache/buildx
+  UV_VERSION: 0.11.33
+  DOCKER_VERSION: 29.4.0
+  BUILDX_VERSION: 0.34.1
+  KUBECTL_VERSION: v1.36.2
+  KUSTOMIZE_VERSION: v5.8.1
+  HELM_VERSION: v4.2.3
+  KIND_VERSION: v0.31.0
+  KUBECONFORM_VERSION: v0.7.0
+  K3S_VERSION: v1.36.2+k3s1
+  UV_TAR_SHA256: aa9fca823c03289fb6e3460b3dc864f3ea895cafaf9b99247701a67b17d1b018
+  BUILDX_SHA256: f1332ddb9010bd0b72628266c3a906d9a6979848033df4c8d9bd2cd113bae12b
+  KUBECTL_SHA256: 1e9045ec32bea85da43de85f0065358529ea7c7a152eca78154fba5b58c27d82
+  HELM_TAR_SHA256: e9b88b4ee95b18c706839c28d3a0220e5bc470e9cd9262410c90793c45ff8b7c
+  KIND_SHA256: eb244cbafcc157dff60cf68693c14c9a75c4e6e6fedaf9cd71c58117cb93e3fa
+  KUBECONFORM_TAR_SHA256: c31518ddd122663b3f3aa874cfe8178cb0988de944f29c74a0b9260920d115d3
+  K3S_SHA256: 65a55ec56c24eab44383086166ec620a491952b7e23941a49ddca6e8a4c4b4de
+
+jobs:
+  quality:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - uses: docker/setup-docker-action@77e84dbf09b47d1e29270283c22f16145aa85ca1
+        with:
+          version: v${{ env.DOCKER_VERSION }}
+          daemon-config: '{"features":{"containerd-snapshotter":true}}'
+      - name: Verify frozen tool lock
+        run: |
+          mkdir -p .cache/ci .cache/docker .cache/buildx
+          grep -F "version: $UV_VERSION" ci/tools.lock.yaml
+          grep -F "version: $DOCKER_VERSION" ci/tools.lock.yaml
+          grep -F "version: $BUILDX_VERSION" ci/tools.lock.yaml
+          grep -F "version: $KUBECTL_VERSION" ci/tools.lock.yaml
+          grep -F "embeddedKustomizeVersion: $KUSTOMIZE_VERSION" ci/tools.lock.yaml
+          grep -F "version: $HELM_VERSION" ci/tools.lock.yaml
+          grep -F "version: $KIND_VERSION" ci/tools.lock.yaml
+          grep -F "version: $KUBECONFORM_VERSION" ci/tools.lock.yaml
+          grep -F "version: $K3S_VERSION" ci/tools.lock.yaml
+          grep -F "$UV_TAR_SHA256" ci/tools.lock.yaml
+          grep -F "$BUILDX_SHA256" ci/tools.lock.yaml
+          grep -F "$KUBECTL_SHA256" ci/tools.lock.yaml
+          grep -F "$HELM_TAR_SHA256" ci/tools.lock.yaml
+          grep -F "$KIND_SHA256" ci/tools.lock.yaml
+          grep -F "$KUBECONFORM_TAR_SHA256" ci/tools.lock.yaml
+          grep -F "$K3S_SHA256" ci/tools.lock.yaml
+      - name: Install checksum-verified developer and CLI tools
+        run: |
+          mkdir -p .cache/ci/bin .cache/ci/downloads .cache/ci/extract "$DOCKER_CONFIG/cli-plugins"
+          curl --fail --location --retry 3 \
+            "https://github.com/astral-sh/uv/releases/download/$UV_VERSION/uv-x86_64-unknown-linux-gnu.tar.gz" \
+            --output .cache/ci/downloads/uv.tar.gz
+          printf '%s  %s\n' "$UV_TAR_SHA256" .cache/ci/downloads/uv.tar.gz | sha256sum --check --strict
+          tar -xzf .cache/ci/downloads/uv.tar.gz -C .cache/ci/extract
+          install -m 0755 .cache/ci/extract/uv-x86_64-unknown-linux-gnu/uv .cache/ci/bin/uv
+          curl --fail --location --retry 3 \
+            "https://github.com/docker/buildx/releases/download/v$BUILDX_VERSION/buildx-v$BUILDX_VERSION.linux-amd64" \
+            --output .cache/ci/downloads/buildx
+          printf '%s  %s\n' "$BUILDX_SHA256" .cache/ci/downloads/buildx | sha256sum --check --strict
+          install -m 0755 .cache/ci/downloads/buildx "$DOCKER_CONFIG/cli-plugins/docker-buildx"
+          curl --fail --location --retry 3 \
+            "https://dl.k8s.io/release/$KUBECTL_VERSION/bin/linux/amd64/kubectl" \
+            --output .cache/ci/downloads/kubectl
+          printf '%s  %s\n' "$KUBECTL_SHA256" .cache/ci/downloads/kubectl | sha256sum --check --strict
+          install -m 0755 .cache/ci/downloads/kubectl .cache/ci/bin/kubectl
+          curl --fail --location --retry 3 \
+            "https://get.helm.sh/helm-$HELM_VERSION-linux-amd64.tar.gz" \
+            --output .cache/ci/downloads/helm.tar.gz
+          printf '%s  %s\n' "$HELM_TAR_SHA256" .cache/ci/downloads/helm.tar.gz | sha256sum --check --strict
+          tar -xzf .cache/ci/downloads/helm.tar.gz -C .cache/ci/extract
+          install -m 0755 .cache/ci/extract/linux-amd64/helm .cache/ci/bin/helm
+          curl --fail --location --retry 3 \
+            "https://github.com/kubernetes-sigs/kind/releases/download/$KIND_VERSION/kind-linux-amd64" \
+            --output .cache/ci/downloads/kind
+          printf '%s  %s\n' "$KIND_SHA256" .cache/ci/downloads/kind | sha256sum --check --strict
+          install -m 0755 .cache/ci/downloads/kind .cache/ci/bin/kind
+          curl --fail --location --retry 3 \
+            "https://github.com/yannh/kubeconform/releases/download/$KUBECONFORM_VERSION/kubeconform-linux-amd64.tar.gz" \
+            --output .cache/ci/downloads/kubeconform.tar.gz
+          printf '%s  %s\n' "$KUBECONFORM_TAR_SHA256" .cache/ci/downloads/kubeconform.tar.gz | sha256sum --check --strict
+          tar -xzf .cache/ci/downloads/kubeconform.tar.gz -C .cache/ci/bin kubeconform
+          k3s_release="${K3S_VERSION/+/%2B}"
+          curl --fail --location --retry 3 \
+            "https://github.com/k3s-io/k3s/releases/download/$k3s_release/k3s" \
+            --output .cache/ci/downloads/k3s
+          printf '%s  %s\n' "$K3S_SHA256" .cache/ci/downloads/k3s | sha256sum --check --strict
+          install -m 0755 .cache/ci/downloads/k3s .cache/ci/bin/k3s
+          printf '%s\n' "$PWD/.cache/ci/bin" >> "$GITHUB_PATH"
+      - name: Verify installed tool identities
+        run: |
+          docker version --format '{{.Client.Version}}' | grep -Fx "$DOCKER_VERSION"
+          docker buildx version | grep -F "v$BUILDX_VERSION"
+          kubectl version --client --output=yaml | grep -F "gitVersion: $KUBECTL_VERSION"
+          kubectl version --client --output=yaml | grep -F "kustomizeVersion: $KUSTOMIZE_VERSION"
+          helm version --short | grep -F "$HELM_VERSION"
+          kind version | grep -F "$KIND_VERSION"
+          kubeconform -v | grep -F "$KUBECONFORM_VERSION"
+          k3s --version | grep -F "$K3S_VERSION"
+      - name: Quality gates
+        run: |
+          uv sync --locked --all-groups
+          uv run ruff format --check .
+          uv run ruff check .
+          uv run basedpyright
+          ./scripts/bootstrap-helm-charts.sh
+          uv run pytest -q tests/deploy tests/supply_chain
+      - uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf
+        with:
+          context: .
+          file: Containerfile.runtime
+          push: false
+          tags: 3t-pipeline-runtime:ci
+          cache-from: type=local,src=.cache/buildx/input
+          cache-to: type=local,dest=.cache/buildx/output,mode=max

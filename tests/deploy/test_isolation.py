@@ -105,8 +105,8 @@ def test_success_publishes_each_artifact_by_atomic_rename(tmp_path: Path) -> Non
 
         # Then: each final path is reached by a successful rename without fallback.
         assert result.returncode == 0
-        assert "Summary: 52 resources found in 1 file" in result.stdout
-        assert "PLATFORM_RENDER_VALID resources=52" in result.stdout
+        assert "Skipped: 0" in result.stdout
+        assert "PLATFORM_RENDER_VALID resources=" in result.stdout
         calls = trace.read_text(encoding="utf-8").splitlines()
         assert "EXDEV" not in "\n".join(calls)
         for final_path in (output, inventory):

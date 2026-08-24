@@ -7,6 +7,7 @@ readonly EXPECTED_DATA_HOME="$PWD/.cache/helm/data"
 readonly CHART_DIR="$PWD/.cache/helm/charts"
 readonly PYTHON="$PWD/.venv/bin/python"
 readonly PUBLISHER="$PWD/scripts/publish-platform-artifact.py"
+readonly IMAGE_METADATA="$PWD/scripts/image-metadata.py"
 
 overlay="example"
 output=""
@@ -82,12 +83,16 @@ helm template argo-workflows "$CHART_DIR/argo-workflows-1.0.19.tgz" --kubeconfig
 helm template nfd "$CHART_DIR/node-feature-discovery-0.18.3.tgz" --kubeconfig "$KUBECONFIG" --namespace node-feature-discovery -f deploy/helm/nfd-values.yaml >"$work_dir/nfd.yaml"
 helm template nvidia-device-plugin "$CHART_DIR/nvidia-device-plugin-0.17.1.tgz" --kubeconfig "$KUBECONFIG" --namespace kube-system -f deploy/helm/nvidia-device-plugin-values.yaml >"$work_dir/nvdp.yaml"
 kubectl --kubeconfig="$KUBECONFIG" kustomize "deploy/kustomize/overlays/$overlay" >"$work_dir/kustomize.yaml"
+"$PYTHON" "$IMAGE_METADATA" render-configmap \
+  --lock deploy/images.lock.yaml \
+  --output "$work_dir/runtime-image.yaml"
 
 "$PYTHON" scripts/platform_manifest.py \
   --source "helm-argo:$work_dir/argo.yaml" \
   --source "helm-gpu:$work_dir/nfd.yaml" \
   --source "helm-gpu:$work_dir/nvdp.yaml" \
   --source "kustomize:$work_dir/kustomize.yaml" \
+  --source "kustomize:$work_dir/runtime-image.yaml" \
   --output "$output_stage" \
   --inventory "$inventory_stage" \
   --ledger config/resource-ownership.yaml
