@@ -49,7 +49,7 @@ def test_every_reference_test_is_classified_exactly_once() -> None:
     discovered = discovered_reference_tests()
     require_exhaustive_classification(ledger, discovered)
     assert ledger.reference_root == str(REFERENCE_TEST_ROOT)
-    assert len(ledger.tests) == len(discovered) == 18
+    assert len(ledger.tests) == len(discovered)
     assert {entry.classification for entry in ledger.tests} == {
         "labclip-only",
         "portable-invariant",

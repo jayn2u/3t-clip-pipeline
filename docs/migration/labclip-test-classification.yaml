@@ -27,6 +27,12 @@ tests:
     disposition: >-
       reimplement canonical inventory, verification, safe hydration, and
       failure atomicity
+  - path: test_download_run_model.py
+    classification: labclip-only
+    provenance: pipeline/tests/test_download_run_model.py
+    disposition: >-
+      keep model download layout and checkpoint selection in a consumer-owned
+      artifact adapter
   - path: test_gpu_scheduling.py
     classification: portable-invariant
     provenance: pipeline/tests/test_gpu_scheduling.py:19-177
@@ -78,6 +84,18 @@ tests:
     classification: labclip-only
     provenance: pipeline/tests/test_option_c_paths.py
     disposition: exclude fixed dataset roots and Option C layout policy
+  - path: test_post_eval_runner.py
+    classification: labclip-only
+    provenance: pipeline/tests/test_post_eval_runner.py
+    disposition: >-
+      keep evaluation entry selection and consumer metrics in the application
+      command adapter
+  - path: test_run_artifacts.py
+    classification: labclip-only
+    provenance: pipeline/tests/test_run_artifacts.py
+    disposition: >-
+      keep consumer result naming and artifact selection behind the required
+      output paths adapter
   - path: test_storage.py
     classification: labclip-only
     provenance: pipeline/tests/test_storage.py:1-160
@@ -90,10 +108,11 @@ tests:
     disposition: >-
       exclude datasets, training entries, W&B policy, labels, and five-fold
       rules
-  - path: test_submit_kfold.py
+  - path: test_submit_train.py
     classification: labclip-only
-    provenance: pipeline/tests/test_submit_kfold.py
-    disposition: exclude fixed datasets, five-fold matrix, and labclip labels
+    provenance: pipeline/tests/test_submit_train.py
+    disposition: >-
+      keep application entry selection in the consumer command adapter
   - path: test_tailscale_operator_manifests.py
     classification: labclip-only
     provenance: pipeline/tests/test_tailscale_operator_manifests.py

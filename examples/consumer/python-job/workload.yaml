@@ -1,0 +1,40 @@
+---
+apiVersion: three-t-clip-pipeline/v1alpha1
+kind: Workload
+metadata:
+  name: python-job
+spec:
+  bundle:
+    s3Uri: s3://consumer-code/python-job.bundle
+    sha256: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  execution:
+    image: >-
+      registry.example/python-job@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+    command: [python, job.py, --config, app-config.json]
+    workingDirectory: app
+  environment:
+    - name: JOB_REQUEST_ID
+      valueFrom:
+        fieldRef:
+          fieldPath: metadata.uid
+  cacheMappings:
+    - s3Uri: s3://consumer-assets/generic-index.inventory.json
+      destination: indexes/generic
+      inventorySha256: >-
+        cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+      readOnly: true
+  resources:
+    cacheProfile: accelerator-a
+    gpuResource: vendor.example/gpu
+    gpuCount: 1
+    cpu: "2"
+    memory: 1Gi
+  timeouts:
+    profileAcquireSeconds: 300
+    activeDeadlineSeconds: 3600
+    terminationGraceSeconds: 90
+    publicationFinalRetrySeconds: 180
+  outputs:
+    bucket: consumer-results
+    prefix: runs/python-job
+    requiredPaths: [result.json, provenance.json]
