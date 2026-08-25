@@ -1,0 +1,9 @@
+# Ansible
+ansible/inventory/hosts.yml
+
+# Terraform
+terraform/.terraform/
+terraform/terraform.tfstate
+terraform/terraform.tfstate.backup
+terraform/terraform.tfvars
+terraform/generated/

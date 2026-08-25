@@ -1,0 +1,33 @@
+# Copy to hosts.yml and fill in real addresses. hosts.yml is gitignored.
+#
+# Topology (see terraform/README.md for the resource layer this hands off to):
+#   vis-lab  -> k3s server (control-plane) + worker, GPU, minio-code, 200Gi cache
+#   ubuntu   -> k3s agent (worker only), GPU, minio-ml-assets, 800Gi cache
+all:
+  children:
+    k3s_server:
+      hosts:
+        vis-lab:
+          ansible_host: 10.0.0.10
+          ansible_user: ops
+          node_gpu_model: "RTX 5070 Ti"
+          cache_root: /mnt/data/labclip-cache
+          cache_capacity_gi: 200
+          minio_role: minio-code
+    k3s_agent:
+      hosts:
+        ubuntu:
+          ansible_host: 10.0.0.11
+          ansible_user: ops
+          node_gpu_model: "RTX A6000"
+          cache_root: /data/jayn2u/labclip-cache
+          cache_capacity_gi: 800
+          minio_role: minio-ml-assets
+    gpu_nodes:
+      children:
+        k3s_server:
+        k3s_agent:
+    k3s_cluster:
+      children:
+        k3s_server:
+        k3s_agent:

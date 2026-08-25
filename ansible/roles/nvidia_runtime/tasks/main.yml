@@ -1,0 +1,37 @@
+---
+# Installs nvidia-container-toolkit and registers the runtime with containerd
+# so k3s (installed after this role) picks it up automatically.
+# See docs/cluster/05-configure-nvidia-runtime.md in the LabCLIP pipeline repo for
+# the manual procedure this replaces.
+
+- name: Add NVIDIA container toolkit GPG key
+  ansible.builtin.apt_key:
+    url: "{{ nvidia_container_toolkit_repo_key_url }}"
+    state: present
+
+- name: Add NVIDIA container toolkit apt repository
+  ansible.builtin.apt_repository:
+    repo: "deb {{ nvidia_container_toolkit_repo_url }}"
+    state: present
+    filename: nvidia-container-toolkit
+
+- name: Install nvidia-container-toolkit at pinned version
+  ansible.builtin.apt:
+    name: "nvidia-container-toolkit={{ nvidia_container_toolkit_version }}"
+    state: present
+    update_cache: true
+
+- name: Configure containerd runtime for k3s's embedded containerd
+  ansible.builtin.command:
+    cmd: >-
+      nvidia-ctk runtime configure
+      --runtime=containerd
+      --config=/var/lib/rancher/k3s/agent/etc/containerd/config.toml.tmpl
+  register: nvidia_ctk_configure
+  changed_when: "'created' in nvidia_ctk_configure.stdout or 'modified' in nvidia_ctk_configure.stdout"
+  notify: restart k3s
+
+- name: Verify GPU is reachable through a test container
+  ansible.builtin.command:
+    cmd: nvidia-smi
+  changed_when: false

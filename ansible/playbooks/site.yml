@@ -1,0 +1,31 @@
+---
+# Full node-layer bootstrap, in dependency order. Idempotent - safe to re-run.
+# Produces a working kubeconfig at ansible/../terraform/generated/kubeconfig,
+# which is the sole handoff point to the Terraform layer (see terraform/README.md).
+#
+# Usage:
+#   ansible-playbook playbooks/preflight.yml
+#   ansible-playbook playbooks/site.yml
+#   cd ../terraform && terraform apply
+
+- name: Verify hosts before making any change
+  import_playbook: preflight.yml
+
+- name: Prepare GPU runtime and local storage on every node
+  hosts: k3s_cluster
+  gather_facts: true
+  roles:
+    - nvidia_runtime
+    - local_storage
+
+- name: Install and start the k3s control plane
+  hosts: k3s_server
+  gather_facts: true
+  roles:
+    - k3s_server
+
+- name: Join worker nodes to the control plane
+  hosts: k3s_agent
+  gather_facts: true
+  roles:
+    - k3s_agent

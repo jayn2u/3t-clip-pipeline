@@ -1,0 +1,5 @@
+---
+k3s_install_url: https://get.k3s.io
+k3s_disable_components:
+  - traefik    # Argo/Tailscale ingress is managed explicitly by Terraform, not the bundled LB
+k3s_node_taints: []
