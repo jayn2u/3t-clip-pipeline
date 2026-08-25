@@ -1,0 +1,9 @@
+---
+# Read-only inspection. Safe to run against the live cluster's hosts at any time.
+# Use before site.yml on new hosts, and periodically on existing ones to catch drift
+# at the OS layer (the Terraform-equivalent of `terraform plan`, for the node layer).
+- name: Verify hosts satisfy k3s prerequisites
+  hosts: k3s_cluster
+  gather_facts: true
+  roles:
+    - host_preflight

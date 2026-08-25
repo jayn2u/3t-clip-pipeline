@@ -1,0 +1,51 @@
+---
+# Verifies the host matches docs/cluster assumptions before any install task runs.
+# Fails fast instead of letting k3s install partially on an unready host.
+
+- name: Assert supported OS family
+  ansible.builtin.assert:
+    that: ansible_facts['os_family'] in ['Debian']
+    fail_msg: "Unsupported OS family: {{ ansible_facts['os_family'] }}"
+
+- name: Load kernel modules required by k3s networking
+  community.general.modprobe:
+    name: "{{ item }}"
+    state: present
+  loop: "{{ required_kernel_modules }}"
+
+- name: Persist kernel modules across reboot
+  ansible.builtin.copy:
+    dest: /etc/modules-load.d/k3s.conf
+    content: "{{ required_kernel_modules | join('\n') }}\n"
+    mode: "0644"
+
+- name: Apply required sysctl settings
+  ansible.posix.sysctl:
+    name: "{{ item.key }}"
+    value: "{{ item.value }}"
+    sysctl_set: true
+    state: present
+    reload: true
+  loop: "{{ required_sysctl | dict2items }}"
+
+- name: Verify GPU is visible to the host
+  ansible.builtin.command: nvidia-smi -L
+  register: nvidia_smi_check
+  changed_when: false
+  failed_when: nvidia_smi_check.rc != 0
+
+- name: Assert the declared GPU model is present
+  ansible.builtin.assert:
+    that: node_gpu_model in nvidia_smi_check.stdout
+    fail_msg: >-
+      Expected GPU '{{ node_gpu_model }}' not found in nvidia-smi output:
+      {{ nvidia_smi_check.stdout }}
+  when: node_gpu_model is defined
+
+- name: Ensure cache root parent directory exists
+  ansible.builtin.file:
+    path: "{{ cache_root }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"

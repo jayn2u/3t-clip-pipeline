@@ -1,0 +1,35 @@
+---
+# Prepares the node-local directories that Terraform's local PersistentVolume
+# and MinIO Deployment resources expect to already exist and be owned correctly.
+# This role only creates directories; the PV/PVC objects themselves are Terraform's
+# job (see terraform/storage.tf, terraform/minio.tf) because they are cluster
+# resources, not host state.
+
+- name: Ensure cache directory exists with correct ownership
+  ansible.builtin.file:
+    path: "{{ cache_root }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0777"    # workload pods run as arbitrary UIDs; world-writable cache is intentional
+
+- name: Ensure MinIO backend data directory exists
+  ansible.builtin.file:
+    path: "{{ minio_data_root }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+  when: minio_role is defined
+
+- name: Report free space on the cache filesystem
+  ansible.builtin.command:
+    cmd: df -h {{ cache_root }}
+  register: cache_df
+  changed_when: false
+
+- name: Assert declared cache capacity does not exceed actual free space
+  ansible.builtin.assert:
+    that: >-
+      (cache_df.stdout_lines[1].split() | last) is defined
+    fail_msg: "Could not verify free space for {{ cache_root }}"

@@ -1,0 +1,3 @@
+---
+nvidia_container_toolkit_repo_key_url: https://nvidia.github.io/libnvidia-container/gpgkey
+nvidia_container_toolkit_repo_url: https://nvidia.github.io/libnvidia-container/stable/deb/$(ARCH) /
