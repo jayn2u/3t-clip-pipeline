@@ -1,0 +1,80 @@
+---
+# Reverses site.yml: removes k3s from every node, returning hosts to bare metal.
+# Run terraform destroy in ../terraform FIRST - this playbook does not touch the
+# Kubernetes API, it only tears down the node-layer k3s installation itself.
+#
+# Usage:
+#   cd ../terraform && terraform destroy
+#   cd ../ansible
+#   ansible-playbook playbooks/teardown.yml -e confirm_teardown=yes
+#
+# By default this only removes k3s (systemd services, binaries, CNI, containerd
+# state) via the uninstall scripts the k3s installer places on each node - it
+# leaves the NVIDIA container toolkit and the cache/MinIO data directories alone.
+# Pass -e purge_data=yes to also delete cache_root and its MinIO backend data.
+# purge_data is destructive and irreversible - it removes real data, not just
+# cluster state.
+
+- name: Refuse to run without explicit confirmation
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Assert confirm_teardown was passed
+      ansible.builtin.assert:
+        that: confirm_teardown | default(false) | bool
+        fail_msg: >-
+          Refusing to tear down the cluster without confirmation.
+          Re-run with -e confirm_teardown=yes (and, if you also want data
+          directories deleted, -e purge_data=yes).
+
+- name: Remove k3s from worker nodes
+  hosts: k3s_agent
+  gather_facts: false
+  tasks:
+    - name: Check for the k3s agent uninstall script
+      ansible.builtin.stat:
+        path: /usr/local/bin/k3s-agent-uninstall.sh
+      register: k3s_agent_uninstaller
+
+    - name: Run k3s agent uninstall script
+      ansible.builtin.command: /usr/local/bin/k3s-agent-uninstall.sh
+      become: true
+      when: k3s_agent_uninstaller.stat.exists
+
+- name: Remove k3s from the control-plane node
+  hosts: k3s_server
+  gather_facts: false
+  tasks:
+    - name: Check for the k3s server uninstall script
+      ansible.builtin.stat:
+        path: /usr/local/bin/k3s-uninstall.sh
+      register: k3s_server_uninstaller
+
+    - name: Run k3s server uninstall script
+      ansible.builtin.command: /usr/local/bin/k3s-uninstall.sh
+      become: true
+      when: k3s_server_uninstaller.stat.exists
+
+    - name: Remove the fetched kubeconfig used by Terraform
+      ansible.builtin.file:
+        path: "{{ k3s_kubeconfig_fetch_dest }}"
+        state: absent
+      delegate_to: localhost
+
+- name: Purge cache and MinIO data directories
+  hosts: k3s_cluster
+  gather_facts: false
+  become: true
+  vars:
+    minio_data_root: "{{ cache_root | dirname }}/minio-data"
+  when: purge_data | default(false) | bool
+  tasks:
+    - name: Remove cache directory
+      ansible.builtin.file:
+        path: "{{ cache_root }}"
+        state: absent
+
+    - name: Remove MinIO backend data directory
+      ansible.builtin.file:
+        path: "{{ minio_data_root }}"
+        state: absent

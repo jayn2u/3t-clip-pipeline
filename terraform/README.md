@@ -66,3 +66,14 @@ Starts on local state (`backend.tf`), fine for a single operator. Once more
 than one person runs `apply`, switch to the commented S3 backend in
 `backend.tf`, pointed at the cluster's own MinIO — no new infrastructure
 needed, just an extra bucket.
+
+## Tearing down
+
+```bash
+terraform destroy
+```
+
+Removes everything this layer owns (namespaces, RBAC, PVs, MinIO, the Argo
+Workflows and Tailscale Helm releases). It does not touch the hosts or k3s
+itself — run this before `../ansible/playbooks/teardown.yml`, which removes
+k3s and returns the nodes to bare metal. See `../ansible/README.md`.
