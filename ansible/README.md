@@ -47,3 +47,19 @@ plan`.
 
 Pinned versions live in `group_vars/all.yml` — bump them deliberately in a
 reviewed change, never let a role float to "latest".
+
+## Tearing down (returning hosts to bare metal)
+
+Destroy the Terraform layer first, then remove k3s from every node:
+
+```bash
+cd ../terraform && terraform destroy
+cd ../ansible
+ansible-playbook playbooks/teardown.yml -e confirm_teardown=yes
+```
+
+This runs k3s's own uninstall scripts (`k3s-agent-uninstall.sh` on agents,
+`k3s-uninstall.sh` on the server) and removes the fetched kubeconfig. It
+leaves the NVIDIA container toolkit and the cache/MinIO data directories in
+place. To also delete that data, add `-e purge_data=yes` — this is
+irreversible, it removes real files, not just cluster state.
