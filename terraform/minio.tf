@@ -49,7 +49,7 @@ resource "kubernetes_deployment" "minio" {
 
         container {
           name  = "minio"
-          image = "minio/minio:RELEASE.2024-08-17T01-24-54Z"
+          image = "quay.io/minio/minio:RELEASE.2024-08-17T01-24-54Z"
           args  = ["server", "/data", "--console-address", ":9001"]
 
           env_from {
