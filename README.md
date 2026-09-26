@@ -10,10 +10,10 @@ Infrastructure-as-code for the LabCLIP k3s cluster (`vis-lab` control-plane+work
    RBAC, storage, MinIO, Argo Workflows, Tailscale.
 
 ```
-ansible-playbook playbooks/site.yml   # -> terraform/generated/kubeconfig
+ansible-playbook playbooks/site.yml
         |
         v
-terraform apply                       # -> running cluster resources
+terraform apply
 ```
 
 Each directory's README documents its own scope boundary and drift-checking

@@ -1,5 +1,3 @@
-# Copy to terraform.tfvars and fill in real secrets. terraform.tfvars is gitignored.
-
 minio_root_user     = "changeme"
 minio_root_password = "changeme"
 
@@ -7,4 +5,4 @@ enable_tailscale              = false
 tailscale_oauth_client_id     = ""
 tailscale_oauth_client_secret = ""
 
-kubeconfig_path = 
+kubeconfig_path = "./generated/kubeconfig"

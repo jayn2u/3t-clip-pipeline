@@ -1,8 +1,3 @@
-# Optional per docs/cluster/10-install-tailscale-optional.md. Gated behind
-# enable_tailscale so clusters that don't need private remote access can skip
-# it entirely, matching the "not required for core execution" status in
-# docs/cluster/00-current-architecture.md.
-
 resource "kubernetes_namespace" "tailscale" {
   count = var.enable_tailscale ? 1 : 0
 

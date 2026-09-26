@@ -1,8 +1,3 @@
-# Replaces the hand-applied pipeline/k8s/argo-workflows/{00,10,20,30,40}-*.yaml
-# (including the 11MB CRD bundle) with the upstream Helm chart, which owns and
-# versions its own CRDs. This removes the biggest source of "did I apply the
-# CRDs before the controller" ordering drift from the old manual procedure.
-
 resource "helm_release" "argo_workflows" {
   name       = "argo-workflows"
   repository = "https://argoproj.github.io/argo-helm"
@@ -12,19 +7,42 @@ resource "helm_release" "argo_workflows" {
 
   values = [
     yamlencode({
+      fullnameOverride = "argo"
       controller = {
         workflowNamespaces = [kubernetes_namespace.argo.metadata[0].name]
+        serviceAccount = {
+          create = true
+          name   = "argo"
+        }
       }
       server = {
-        # Server is reached via Tailscale ingress (tailscale.tf), never a public LB.
         serviceType = "ClusterIP"
+        serviceAccount = {
+          create = true
+          name   = "argo-server"
+        }
       }
       crds = {
         install = true
-        keep    = true # don't delete CRDs (and therefore live Workflow objects) on chart uninstall
+        keep    = true
       }
     })
   ]
 
   depends_on = [kubernetes_namespace.argo]
+}
+
+resource "kubectl_manifest" "labclip_train" {
+  yaml_body         = file(var.labclip_workflow_template_path)
+  server_side_apply = true
+
+  depends_on = [
+    helm_release.argo_workflows,
+    helm_release.nvidia_device_plugin,
+    kubernetes_secret.ghcr,
+    kubernetes_secret.minio_credentials,
+    kubernetes_secret.minio_researcher_credentials,
+    kubernetes_secret.wandb,
+    kubernetes_service_account.labclip_runner,
+  ]
 }

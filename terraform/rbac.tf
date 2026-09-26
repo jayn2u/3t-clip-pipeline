@@ -1,7 +1,3 @@
-# Mirrors the labclip-runner ServiceAccount/ClusterRole previously applied by
-# hand via pipeline/rbac.yaml in the LabCLIP repo. Grants Argo workflow pods the
-# minimum permissions to schedule work and manage their own leases/results.
-
 resource "kubernetes_service_account" "labclip_runner" {
   metadata {
     name      = "labclip-runner"
@@ -53,6 +49,38 @@ resource "kubernetes_cluster_role_binding" "labclip_runner" {
   subject {
     kind      = "ServiceAccount"
     name      = kubernetes_service_account.labclip_runner.metadata[0].name
+    namespace = kubernetes_namespace.argo.metadata[0].name
+  }
+}
+
+resource "kubernetes_role" "argo_workflowtaskresults_cleanup" {
+  metadata {
+    name      = "argo-workflowtaskresults-cleanup"
+    namespace = kubernetes_namespace.argo.metadata[0].name
+  }
+
+  rule {
+    api_groups = ["argoproj.io"]
+    resources  = ["workflowtaskresults"]
+    verbs      = ["get", "list", "watch", "delete", "deletecollection"]
+  }
+}
+
+resource "kubernetes_role_binding" "argo_workflowtaskresults_cleanup" {
+  metadata {
+    name      = kubernetes_role.argo_workflowtaskresults_cleanup.metadata[0].name
+    namespace = kubernetes_namespace.argo.metadata[0].name
+  }
+
+  role_ref {
+    api_group = "rbac.authorization.k8s.io"
+    kind      = "Role"
+    name      = kubernetes_role.argo_workflowtaskresults_cleanup.metadata[0].name
+  }
+
+  subject {
+    kind      = "ServiceAccount"
+    name      = "argo"
     namespace = kubernetes_namespace.argo.metadata[0].name
   }
 }
