@@ -1,10 +1,17 @@
 ---
-# Shared, pinned versions. Bump deliberately, never silently.
-k3s_version: "v1.30.4+k3s1"
-nvidia_container_toolkit_version: "1.16.1-1"
+k3s_version: "v1.36.2+k3s1"
+nvidia_container_toolkit_version: "1.20.1-1"
 
-k3s_token_file: /etc/rancher/k3s/cluster-token
+k3s_token_file: "{{ k3s_data_dir }}/server/node-token"
 k3s_kubeconfig_fetch_dest: "{{ playbook_dir }}/../../terraform/generated/kubeconfig"
 
-# The first host in k3s_server is the join target for every agent.
 k3s_server_host: "{{ groups['k3s_server'][0] }}"
+k3s_server_address: "{{ hostvars[k3s_server_host]['k3s_node_ip'] }}"
+
+required_kernel_modules:
+  - overlay
+  - br_netfilter
+
+required_sysctl:
+  net.bridge.bridge-nf-call-iptables: 1
+  net.ipv4.ip_forward: 1

@@ -3,9 +3,3 @@ resource "kubernetes_namespace" "argo" {
     name = var.argo_namespace
   }
 }
-
-resource "kubernetes_namespace" "minio" {
-  metadata {
-    name = "minio"
-  }
-}

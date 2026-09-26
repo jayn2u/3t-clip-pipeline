@@ -1,0 +1,129 @@
+---
+
+- name: Assert k3s and persistent storage paths are explicit and absolute
+  ansible.builtin.assert:
+    that:
+      - k3s_data_dir is defined
+      - k3s_data_dir.startswith('/')
+      - storage_mount is defined
+      - storage_mount.startswith('/')
+      - cache_root is defined
+      - cache_root.startswith('/')
+      - minio_role is not defined or
+        (minio_data_root is defined and minio_data_root.startswith('/'))
+      - "'.' not in k3s_data_dir.split('/')"
+      - "'..' not in k3s_data_dir.split('/')"
+    fail_msg: >-
+      Set absolute k3s_data_dir, storage_mount, and cache_root paths; MinIO nodes
+      must also set an absolute minio_data_root. Do not use dot path components.
+
+- name: Build the list of paths to canonicalize
+  ansible.builtin.set_fact:
+    k3s_data_guard_paths: >-
+      {{ [k3s_data_dir, storage_mount, cache_root, k3s_legacy_data_dir] +
+         ([minio_data_root] if minio_role is defined else []) }}
+
+- name: Canonicalize k3s and storage paths without creating directories
+  ansible.builtin.command:
+    argv:
+      - realpath
+      - --canonicalize-missing
+      - --
+      - "{{ item }}"
+  loop: "{{ k3s_data_guard_paths }}"
+  register: k3s_data_guard_canonical_paths
+  changed_when: false
+  check_mode: false
+
+- name: Save canonical paths for the safety assertions
+  ansible.builtin.set_fact:
+    k3s_data_dir_resolved: "{{ k3s_data_guard_canonical_paths.results[0].stdout | trim }}"
+    storage_mount_resolved: "{{ k3s_data_guard_canonical_paths.results[1].stdout | trim }}"
+    cache_root_resolved: "{{ k3s_data_guard_canonical_paths.results[2].stdout | trim }}"
+    legacy_k3s_data_dir_resolved: "{{ k3s_data_guard_canonical_paths.results[3].stdout | trim }}"
+    minio_data_root_resolved: >-
+      {{ k3s_data_guard_canonical_paths.results[4].stdout | trim
+         if minio_role is defined else '' }}
+
+- name: Assert k3s data directory is isolated from persistent user data
+  ansible.builtin.assert:
+    that:
+      - >-
+        (k3s_data_dir_guard_allow_legacy | bool and
+         k3s_data_dir_resolved == legacy_k3s_data_dir_resolved) or
+        (k3s_data_dir_resolved != storage_mount_resolved and
+         k3s_data_dir_resolved.startswith(storage_mount_resolved.rstrip('/') + '/'))
+      - k3s_data_dir_resolved != cache_root_resolved
+      - not k3s_data_dir_resolved.startswith(cache_root_resolved.rstrip('/') + '/')
+      - not cache_root_resolved.startswith(k3s_data_dir_resolved.rstrip('/') + '/')
+      - minio_role is not defined or k3s_data_dir_resolved != minio_data_root_resolved
+      - minio_role is not defined or
+        not k3s_data_dir_resolved.startswith(minio_data_root_resolved.rstrip('/') + '/')
+      - minio_role is not defined or
+        not minio_data_root_resolved.startswith(k3s_data_dir_resolved.rstrip('/') + '/')
+    fail_msg: >-
+      Refusing unsafe k3s_data_dir {{ k3s_data_dir_resolved }}. It must be a
+      dedicated directory below {{ storage_mount_resolved }} and must not overlap
+      cache_root {{ cache_root_resolved }} or the MinIO data root.
+
+- name: Check for an existing k3s installation
+  ansible.builtin.command: k3s --version
+  register: k3s_data_guard_installed
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Select the existing server or agent environment file
+  ansible.builtin.set_fact:
+    k3s_data_guard_service_env: >-
+      /etc/systemd/system/{{ 'k3s' if 'k3s_server' in group_names else 'k3s-agent' }}.service.env
+  when: k3s_data_guard_installed.rc == 0
+
+- name: Read the existing K3s data directory without exposing service credentials
+  ansible.builtin.command:
+    argv:
+      - python3
+      - -c
+      - |
+        from pathlib import Path
+        import shlex
+        import sys
+
+        env_file = Path(sys.argv[1])
+        data_dir = ''
+        if env_file.is_file():
+            for line in env_file.read_text(encoding='utf-8').splitlines():
+                if line.startswith('K3S_DATA_DIR='):
+                    values = shlex.split(line.partition('=')[2], posix=True)
+                    if values:
+                        data_dir = values[0]
+                    break
+        print(data_dir or '/var/lib/rancher/k3s')
+      - "{{ k3s_data_guard_service_env }}"
+  register: k3s_data_guard_installed_dir_raw
+  changed_when: false
+  check_mode: false
+  no_log: true
+  when: k3s_data_guard_installed.rc == 0
+
+- name: Canonicalize the installed K3s data directory
+  ansible.builtin.command:
+    argv:
+      - realpath
+      - --canonicalize-missing
+      - --
+      - "{{ k3s_data_guard_installed_dir_raw.stdout | trim }}"
+  register: k3s_data_guard_installed_dir
+  changed_when: false
+  check_mode: false
+  no_log: true
+  when: k3s_data_guard_installed.rc == 0
+
+- name: Refuse to switch an existing K3s installation to another data directory
+  ansible.builtin.assert:
+    that: k3s_data_guard_installed_dir.stdout | trim == k3s_data_dir_resolved
+    fail_msg: >-
+      This K3s installation uses {{ k3s_data_guard_installed_dir.stdout | trim }}
+      but inventory selects {{ k3s_data_dir_resolved }}. Tear down K3s using its
+      current data directory before installing into a new one.
+  when: k3s_data_guard_installed.rc == 0

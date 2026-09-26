@@ -1,2 +1,0 @@
----
-minio_data_root: "{{ cache_root | dirname }}/minio-data"

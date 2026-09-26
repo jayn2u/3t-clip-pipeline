@@ -1,38 +1,72 @@
 ---
-# Verifies the host matches docs/cluster assumptions before any install task runs.
-# Fails fast instead of letting k3s install partially on an unready host.
 
 - name: Assert supported OS family
   ansible.builtin.assert:
     that: ansible_facts['os_family'] in ['Debian']
     fail_msg: "Unsupported OS family: {{ ansible_facts['os_family'] }}"
 
-- name: Load kernel modules required by k3s networking
-  community.general.modprobe:
-    name: "{{ item }}"
-    state: present
+- name: Verify required kernel modules are available
+  ansible.builtin.command:
+    argv:
+      - modinfo
+      - -F
+      - filename
+      - "{{ item }}"
   loop: "{{ required_kernel_modules }}"
+  register: required_kernel_module_checks
+  changed_when: false
+  check_mode: false
 
-- name: Persist kernel modules across reboot
-  ansible.builtin.copy:
-    dest: /etc/modules-load.d/k3s.conf
-    content: "{{ required_kernel_modules | join('\n') }}\n"
-    mode: "0644"
+- name: Assert required kernel modules are available
+  ansible.builtin.assert:
+    that: item.rc == 0
+    fail_msg: "Required kernel module {{ item.item }} is unavailable."
+  loop: "{{ required_kernel_module_checks.results }}"
 
-- name: Apply required sysctl settings
-  ansible.posix.sysctl:
-    name: "{{ item.key }}"
-    value: "{{ item.value }}"
-    sysctl_set: true
-    state: present
-    reload: true
-  loop: "{{ required_sysctl | dict2items }}"
+- name: Assert persistent storage roots are explicitly configured
+  ansible.builtin.assert:
+    that:
+      - storage_mount is defined
+      - storage_mount.startswith('/')
+      - cache_root is defined
+      - cache_root.startswith(storage_mount.rstrip('/') + '/')
+      - minio_role is not defined or
+        (minio_data_root is defined and minio_data_root.startswith(storage_mount.rstrip('/') + '/'))
+    fail_msg: >-
+      Set storage_mount, cache_root, and (for a MinIO node) minio_data_root
+      to absolute paths on the same persistent mounted filesystem.
+
+- name: Inspect the filesystem that will hold persistent data
+  ansible.builtin.command:
+    argv:
+      - findmnt
+      - --noheadings
+      - --output
+      - TARGET
+      - --target
+      - "{{ storage_mount }}"
+  register: storage_mount_check
+  changed_when: false
+  failed_when: storage_mount_check.rc != 0
+  check_mode: false
+
+- name: Assert storage mount is present at the expected mount point
+  ansible.builtin.assert:
+    that: storage_mount_check.stdout | trim == storage_mount
+    fail_msg: >-
+      Expected persistent storage at {{ storage_mount }}, but findmnt reports
+      {{ storage_mount_check.stdout | trim | default('no mount') }}.
 
 - name: Verify GPU is visible to the host
-  ansible.builtin.command: nvidia-smi -L
+  ansible.builtin.command:
+    argv:
+      - nvidia-smi
+      - -L
   register: nvidia_smi_check
   changed_when: false
   failed_when: nvidia_smi_check.rc != 0
+  check_mode: false
+  when: node_gpu_model is defined
 
 - name: Assert the declared GPU model is present
   ansible.builtin.assert:
@@ -41,11 +75,3 @@
       Expected GPU '{{ node_gpu_model }}' not found in nvidia-smi output:
       {{ nvidia_smi_check.stdout }}
   when: node_gpu_model is defined
-
-- name: Ensure cache root parent directory exists
-  ansible.builtin.file:
-    path: "{{ cache_root }}"
-    state: directory
-    owner: root
-    group: root
-    mode: "0755"

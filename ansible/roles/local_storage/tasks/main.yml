@@ -1,9 +1,4 @@
 ---
-# Prepares the node-local directories that Terraform's local PersistentVolume
-# and MinIO Deployment resources expect to already exist and be owned correctly.
-# This role only creates directories; the PV/PVC objects themselves are Terraform's
-# job (see terraform/storage.tf, terraform/minio.tf) because they are cluster
-# resources, not host state.
 
 - name: Ensure cache directory exists with correct ownership
   ansible.builtin.file:
@@ -11,25 +6,53 @@
     state: directory
     owner: root
     group: root
-    mode: "0777"    # workload pods run as arbitrary UIDs; world-writable cache is intentional
+    mode: "0777"
 
-- name: Ensure MinIO backend data directory exists
+- name: Require an explicit MinIO data root
+  ansible.builtin.assert:
+    that: minio_data_root is defined and minio_data_root.startswith('/')
+    fail_msg: "Set minio_data_root explicitly for {{ minio_role }}."
+  when: minio_role is defined
+
+- name: Ensure MinIO backend data directory exists without changing existing ownership
   ansible.builtin.file:
     path: "{{ minio_data_root }}"
     state: directory
-    owner: root
-    group: root
-    mode: "0750"
   when: minio_role is defined
 
 - name: Report free space on the cache filesystem
   ansible.builtin.command:
-    cmd: df -h {{ cache_root }}
+    argv:
+      - df
+      - --output=avail
+      - --block-size=1
+      - --
+      - "{{ cache_root }}"
   register: cache_df
   changed_when: false
+  check_mode: false
 
-- name: Assert declared cache capacity does not exceed actual free space
+- name: Measure allocated bytes already retained in the cache directory
+  ansible.builtin.command:
+    argv:
+      - du
+      - --summarize
+      - --block-size=1
+      - --
+      - "{{ cache_root }}"
+  register: cache_usage
+  changed_when: false
+  check_mode: false
+
+- name: Assert declared cache capacity fits retained data plus filesystem free space
   ansible.builtin.assert:
     that: >-
-      (cache_df.stdout_lines[1].split() | last) is defined
-    fail_msg: "Could not verify free space for {{ cache_root }}"
+      cache_capacity_gi is defined and
+      ((cache_df.stdout_lines | last | trim | int) +
+       (cache_usage.stdout.split() | first | int)) >=
+      ((cache_capacity_gi | int) * 1073741824)
+    fail_msg: >-
+      Cache volume {{ cache_root }} has
+      {{ cache_usage.stdout.split() | first | default('unknown') }} bytes retained and
+      its filesystem has {{ cache_df.stdout_lines | last | default('unknown') }} bytes free;
+      together they cannot support the declared {{ cache_capacity_gi | default('unknown') }} GiB.

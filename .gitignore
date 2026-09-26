@@ -1,13 +1,15 @@
-# Ansible
 ansible/inventory/hosts.yml
 
-# Terraform
 terraform/.terraform/
 terraform/terraform.tfstate
 terraform/terraform.tfstate.backup
 terraform/.terraform.tfstate.lock.info
 terraform/terraform.tfvars
+terraform/*.auto.tfvars.json
 terraform/generated/
+
+__pycache__/
+*.py[cod]
 
 .claude/
 .worktrees
