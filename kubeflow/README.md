@@ -140,6 +140,28 @@ or a command-line argument.
 
 ## UI access and verification
 
+The 2026-09-29 PoC validation and observed limitations are recorded in
+[`docs/validation/2026-09-29-full-kubeflow-poc.md`](../docs/validation/2026-09-29-full-kubeflow-poc.md).
+On the validated host, the loopback forward is currently maintained by the
+transient user unit `labclip-kubeflow-local-ui.service` rather than an open
+terminal. Inspect it with `systemctl --user status labclip-kubeflow-local-ui.service`.
+After a host reboot, recreate that unit from the IaC repository root:
+
+```bash
+systemd-run --user --unit=labclip-kubeflow-local-ui \
+  --property=Restart=always --property=RestartSec=3s \
+  --setenv=KUBECONFIG="$PWD/terraform/generated/kubeconfig" \
+  "$(command -v kubectl)" -n istio-system port-forward \
+  --address 127.0.0.1 service/istio-ingressgateway 8080:80
+```
+
+The unit is transient, not a persistent boot-time service. Stop it with
+`systemctl --user stop labclip-kubeflow-local-ui.service`. Use either that unit
+or the foreground port-forward below, not both on port 8080. The Tailscale Operator
+was not enabled in this PoC because its OAuth inputs and Access Controls were
+not verified. The overlay's Tailscale Ingress has no reachable hostname until
+that separately reviewed setup is completed.
+
 Run the read-only drift and readiness checks after both Terraform stages:
 
 ```bash
