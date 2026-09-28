@@ -1,4 +1,5 @@
 import importlib.util
+import hashlib
 import hmac
 import json
 from pathlib import Path
@@ -184,9 +185,175 @@ class KubeflowRenderTests(unittest.TestCase):
     def test_render_inventory_is_deterministic(self) -> None:
         self.require_implementation()
         first_inventory = self.receipt.inventory
+        self.assertFalse(self.receipt.approved)
         self.assertEqual(tuple(sorted(first_inventory)), first_inventory)
         self.assertEqual(len(first_inventory), len({tuple(row) for row in first_inventory}))
-        self.assertEqual(first_inventory, self.tools._build_inventory(self.documents))
+        self.assertEqual(728, len(first_inventory))
+        second_path = self.temp_root / "rendered-second.yaml"
+        second = self.tools.render_distribution(EXPECTED_SOURCE_REF, self.site_dir, second_path)
+        self.assertEqual(728, len(second.inventory))
+        self.assertEqual(self.receipt.sha256, second.sha256)
+        self.assertEqual(first_inventory, second.inventory)
+
+
+class RenderApprovalTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tools = load_tools()
+        self.temp = tempfile.TemporaryDirectory(prefix="kubeflow-approval-tests-")
+        self.root = Path(self.temp.name)
+        self.manifest_path = self.root / "rendered.yaml"
+        self.receipt_path = self.root / "receipt.json"
+        self.inventory_path = self.root / "inventory.json"
+        self.approval_path = self.root / "approval.json"
+        email = "test@lab.example"
+        password_hash = "$2b$12$" + "a" * 53
+        config = {"staticPasswords": [{"email": email, "username": "test", "hashFromEnv": "DEX_USER_PASSWORD"}]}
+        documents = [
+            {
+                "apiVersion": "v1",
+                "kind": "Service",
+                "metadata": {"name": "istio-ingressgateway", "namespace": "istio-system"},
+                "spec": {"type": "ClusterIP"},
+            },
+            {
+                "apiVersion": "v1",
+                "kind": "ConfigMap",
+                "metadata": {"name": "dex", "namespace": "auth"},
+                "data": {"config.yaml": yaml.safe_dump(config)},
+            },
+            {
+                "apiVersion": "kubeflow.org/v1beta1",
+                "kind": "Profile",
+                "metadata": {"name": "kubeflow-user-test-lab-example"},
+                "spec": {"owner": {"name": email}},
+            },
+            {
+                "apiVersion": "v1",
+                "kind": "Secret",
+                "metadata": {"name": "dex-passwords", "namespace": "auth"},
+                "stringData": {"DEX_USER_PASSWORD": password_hash},
+            },
+            {
+                "apiVersion": "networking.k8s.io/v1",
+                "kind": "Ingress",
+                "metadata": {"name": "kubeflow-tailnet", "namespace": "istio-system"},
+                "spec": {
+                    "ingressClassName": "tailscale",
+                    "tls": [{"hosts": ["labclip-kubeflow"]}],
+                    "rules": [
+                        {
+                            "host": "labclip-kubeflow",
+                            "http": {
+                                "paths": [
+                                    {
+                                        "path": "/",
+                                        "pathType": "Prefix",
+                                        "backend": {
+                                            "service": {
+                                                "name": "istio-ingressgateway",
+                                                "port": {"number": 80},
+                                            }
+                                        },
+                                    }
+                                ]
+                            },
+                        }
+                    ],
+                },
+            },
+        ]
+        manifest = "---\n".join(yaml.safe_dump(item, sort_keys=False) for item in documents)
+        self.manifest_path.write_text(manifest)
+        self.manifest_path.chmod(0o600)
+        identities = tuple(
+            sorted(
+                (
+                    item["apiVersion"],
+                    item["kind"],
+                    item.get("metadata", {}).get("namespace", ""),
+                    item["metadata"]["name"],
+                )
+                for item in documents
+            )
+        )
+        inventory_text = json.dumps([list(item) for item in identities], indent=2) + "\n"
+        self.inventory_path.write_text(inventory_text)
+        self.inventory_path.chmod(0o600)
+        digest = hashlib.sha256(manifest.encode()).hexdigest()
+        receipt = {
+            "schema_version": 1,
+            "source_ref": EXPECTED_SOURCE_REF,
+            "source_tag": "26.03.1",
+            "source_commit": "f09f3eeaa25cc852665f460497a42b7fc68639ac",
+            "sha256": digest,
+            "inventory_sha256": hashlib.sha256(inventory_text.encode()).hexdigest(),
+            "object_count": len(identities),
+            "manifest": self.manifest_path.name,
+        }
+        self.receipt_path.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
+        self.receipt_path.chmod(0o600)
+        self.digest = digest
+
+    def tearDown(self) -> None:
+        self.temp.cleanup()
+
+    def require_approval_api(self) -> None:
+        self.assertIsNotNone(self.tools, "Kubeflow render approval module is not available")
+        self.assertTrue(
+            hasattr(self.tools, "approve_render"),
+            "An explicit operator-approved digest command is required",
+        )
+        self.assertTrue(
+            hasattr(self.tools, "verify_render_approval"),
+            "Apply must verify a separate digest approval artifact",
+        )
+
+    def test_missing_approval_rejects_a_self_generated_receipt(self) -> None:
+        self.require_approval_api()
+        with self.assertRaises(self.tools.RenderApprovalError):
+            self.tools.verify_render_approval(
+                self.manifest_path,
+                self.receipt_path,
+                self.approval_path,
+                self.inventory_path,
+            )
+
+    def test_self_generated_receipt_cannot_change_approved_digest(self) -> None:
+        self.require_approval_api()
+        approval = self.tools.approve_render(
+            self.digest,
+            self.manifest_path,
+            self.receipt_path,
+            self.inventory_path,
+            self.approval_path,
+        )
+        self.assertEqual(self.digest, approval["sha256"])
+        self.assertEqual(0o600, stat.S_IMODE(self.approval_path.stat().st_mode))
+        mutated = self.manifest_path.read_bytes() + b"\n"
+        self.manifest_path.write_bytes(mutated)
+        candidate_receipt = json.loads(self.receipt_path.read_text())
+        candidate_receipt["sha256"] = hashlib.sha256(mutated).hexdigest()
+        self.receipt_path.write_text(json.dumps(candidate_receipt, indent=2, sort_keys=True) + "\n")
+        self.receipt_path.chmod(0o600)
+        with self.assertRaises(self.tools.RenderApprovalError):
+            self.tools.verify_render_approval(
+                self.manifest_path,
+                self.receipt_path,
+                self.approval_path,
+                self.inventory_path,
+            )
+
+    def test_digest_argument_must_match_the_candidate_bytes(self) -> None:
+        self.require_approval_api()
+        with self.assertRaises(self.tools.RenderApprovalError):
+            self.tools.approve_render(
+                "0" * 64,
+                self.manifest_path,
+                self.receipt_path,
+                self.inventory_path,
+                self.approval_path,
+            )
+        self.assertFalse(self.approval_path.exists())
 
 
 if __name__ == "__main__":

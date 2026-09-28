@@ -50,10 +50,16 @@ class RenderReceipt:
     source_tag: str
     source_commit: str
     sha256: str
+    approved: bool
     inventory: tuple[tuple[str, str, str, str], ...]
     output_path: Path
     receipt_path: Path
     inventory_path: Path
+    approval_path: Path
+
+
+class RenderApprovalError(ValueError):
+    pass
 
 
 def _bcrypt():
@@ -280,12 +286,16 @@ def validate_source_ref(source_ref: str) -> None:
 
 def verify_release_commit() -> None:
     tag_ref = f"refs/tags/{UPSTREAM_TAG}"
-    result = subprocess.run(
-        ["git", "ls-remote", "--tags", UPSTREAM_GIT_URL, tag_ref, f"{tag_ref}^{{}}"],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
+    try:
+        result = subprocess.run(
+            ["git", "ls-remote", "--tags", UPSTREAM_GIT_URL, tag_ref, f"{tag_ref}^{{}}"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError("Timed out verifying the Kubeflow release tag.") from exc
     if result.returncode != 0:
         raise RuntimeError("Unable to verify the Kubeflow release tag against its pinned commit.")
     references = {}
@@ -299,12 +309,16 @@ def verify_release_commit() -> None:
 
 
 def _verify_kubectl_kustomize() -> None:
-    result = subprocess.run(
-        ["kubectl", "version", "--client", "-o", "yaml"],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
+    try:
+        result = subprocess.run(
+            ["kubectl", "version", "--client", "-o", "yaml"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError("Timed out reading the kubectl client version.") from exc
     if result.returncode != 0:
         raise RuntimeError("kubectl client version could not be read.")
     version = yaml.safe_load(result.stdout)
@@ -423,10 +437,142 @@ def _write_output(path: Path, contents: str) -> None:
             temporary_path.unlink()
 
 
+def _read_private_artifact(path: Path, label: str) -> bytes:
+    if path.is_symlink() or not path.is_file():
+        raise RenderApprovalError(f"The {label} file must exist as a regular file.")
+    file_stat = path.stat()
+    if stat.S_IMODE(file_stat.st_mode) != 0o600 or file_stat.st_nlink != 1:
+        raise RenderApprovalError(f"The {label} file must be private and have mode 0600.")
+    return path.read_bytes()
+
+
+def _validate_candidate_artifacts(
+    manifest_path: Path,
+    receipt_path: Path,
+    inventory_path: Path,
+) -> tuple[dict, tuple[tuple[str, str, str, str], ...], str, str]:
+    manifest_bytes = _read_private_artifact(manifest_path, "rendered manifest")
+    receipt_bytes = _read_private_artifact(receipt_path, "render receipt")
+    inventory_bytes = _read_private_artifact(inventory_path, "object inventory")
+    try:
+        receipt = json.loads(receipt_bytes)
+        rendered = manifest_bytes.decode("utf-8")
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise RenderApprovalError("A Kubeflow render artifact is malformed.") from exc
+    if not isinstance(receipt, dict) or receipt.get("schema_version") != 1:
+        raise RenderApprovalError("The Kubeflow render receipt schema is unsupported.")
+    try:
+        validate_source_ref(receipt.get("source_ref", ""))
+    except ValueError as exc:
+        raise RenderApprovalError("The candidate render receipt is not pinned to the approved source.") from exc
+    if receipt.get("source_tag") != UPSTREAM_TAG or receipt.get("source_commit") != UPSTREAM_COMMIT:
+        raise RenderApprovalError("The candidate render receipt has unexpected upstream provenance.")
+    if receipt.get("manifest") != manifest_path.name:
+        raise RenderApprovalError("The candidate receipt names a different rendered manifest.")
+    actual_digest = hashlib.sha256(manifest_bytes).hexdigest()
+    if receipt.get("sha256") != actual_digest:
+        raise RenderApprovalError("The candidate receipt does not match the current manifest bytes.")
+    documents = _load_yaml_documents(rendered)
+    try:
+        _validate_rendered(documents, rendered)
+    except (AttributeError, KeyError, TypeError, ValueError) as exc:
+        raise RenderApprovalError("The candidate manifest failed the Kubeflow safety checks.") from exc
+    inventory = _build_inventory(documents)
+    expected_inventory = json.dumps([list(identity) for identity in inventory], indent=2) + "\n"
+    if inventory_bytes != expected_inventory.encode("utf-8"):
+        raise RenderApprovalError("The candidate object inventory does not match the current manifest.")
+    inventory_digest = hashlib.sha256(inventory_bytes).hexdigest()
+    if receipt.get("inventory_sha256") != inventory_digest:
+        raise RenderApprovalError("The candidate receipt does not match the object inventory.")
+    if receipt.get("object_count") != len(inventory):
+        raise RenderApprovalError("The candidate receipt has an unexpected object count.")
+    return receipt, inventory, actual_digest, inventory_digest
+
+
+def approve_render(
+    expected_sha256: str,
+    manifest_path: Path,
+    receipt_path: Path,
+    inventory_path: Path,
+    approval_path: Path | None = None,
+) -> dict:
+    if re.fullmatch(r"[0-9a-f]{64}", expected_sha256) is None:
+        raise RenderApprovalError("The explicit approval digest must be 64 lowercase hexadecimal characters.")
+    manifest = Path(manifest_path).expanduser().absolute()
+    receipt_file = Path(receipt_path).expanduser().absolute()
+    inventory_file = Path(inventory_path).expanduser().absolute()
+    approval_file = (
+        Path(approval_path).expanduser().absolute()
+        if approval_path is not None
+        else manifest.parent / "approval.json"
+    )
+    receipt, inventory, actual_digest, inventory_digest = _validate_candidate_artifacts(
+        manifest, receipt_file, inventory_file
+    )
+    if expected_sha256 != actual_digest:
+        raise RenderApprovalError(
+            "The explicitly approved digest does not match the candidate bytes; no approval was written."
+        )
+    approval = {
+        "schema_version": 1,
+        "source_ref": receipt["source_ref"],
+        "source_tag": UPSTREAM_TAG,
+        "source_commit": UPSTREAM_COMMIT,
+        "sha256": actual_digest,
+        "inventory_sha256": inventory_digest,
+        "object_count": len(inventory),
+        "manifest": manifest.name,
+    }
+    _write_output(approval_file, json.dumps(approval, indent=2, sort_keys=True) + "\n")
+    verify_render_approval(manifest, receipt_file, approval_file, inventory_file)
+    return approval
+
+
+def verify_render_approval(
+    manifest_path: Path,
+    receipt_path: Path,
+    approval_path: Path,
+    inventory_path: Path,
+) -> dict:
+    manifest = Path(manifest_path).expanduser().absolute()
+    receipt_file = Path(receipt_path).expanduser().absolute()
+    approval_file = Path(approval_path).expanduser().absolute()
+    inventory_file = Path(inventory_path).expanduser().absolute()
+    if not approval_file.is_file():
+        raise RenderApprovalError("No operator-approved Kubeflow digest exists; apply is blocked.")
+    receipt, inventory, actual_digest, inventory_digest = _validate_candidate_artifacts(
+        manifest, receipt_file, inventory_file
+    )
+    approval_bytes = _read_private_artifact(approval_file, "digest approval")
+    try:
+        approval = json.loads(approval_bytes)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise RenderApprovalError("The Kubeflow digest approval file is malformed.") from exc
+    expected = {
+        "schema_version": 1,
+        "source_ref": UPSTREAM_SOURCE_REF,
+        "source_tag": UPSTREAM_TAG,
+        "source_commit": UPSTREAM_COMMIT,
+        "sha256": actual_digest,
+        "inventory_sha256": inventory_digest,
+        "object_count": len(inventory),
+        "manifest": manifest.name,
+    }
+    if approval != expected:
+        raise RenderApprovalError(
+            "The current manifest differs from the operator-approved digest; review it and explicitly re-approve before apply."
+        )
+    if receipt.get("sha256") != approval.get("sha256"):
+        raise RenderApprovalError("The candidate receipt differs from the operator-approved digest.")
+    return approval
+
+
 def render_distribution(
     source_ref: str,
     site_dir: Path,
     output: Path,
+    *,
+    enforce_approval: bool = True,
 ) -> RenderReceipt:
     validate_source_ref(source_ref)
     site = Path(site_dir)
@@ -445,43 +591,62 @@ def render_distribution(
             raise PermissionError("Generated Kubeflow identity patches must have mode 0600.")
     verify_release_commit()
     _verify_kubectl_kustomize()
-    result = subprocess.run(
-        ["kubectl", "kustomize", str(site)],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
+    try:
+        result = subprocess.run(
+            ["kubectl", "kustomize", str(site)],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=180,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError("Timed out rendering the pinned Kubeflow distribution.") from exc
     if result.returncode != 0:
         raise RuntimeError(f"kubectl kustomize failed with exit code {result.returncode}.")
     documents = _load_yaml_documents(result.stdout)
     _validate_rendered(documents, result.stdout)
     inventory = _build_inventory(documents)
     digest = hashlib.sha256(result.stdout.encode("utf-8")).hexdigest()
-    output_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    output_path.parent.chmod(0o700)
+    _private_directory(output_path.parent)
     _write_output(output_path, result.stdout)
     receipt_path = output_path.parent / "receipt.json"
     inventory_path = output_path.parent / "inventory.json"
+    approval_path = output_path.parent / "approval.json"
+    inventory_data = [list(identity) for identity in inventory]
+    inventory_text = json.dumps(inventory_data, indent=2) + "\n"
+    inventory_digest = hashlib.sha256(inventory_text.encode("utf-8")).hexdigest()
     receipt_data = {
+        "schema_version": 1,
         "source_ref": source_ref,
         "source_tag": UPSTREAM_TAG,
         "source_commit": UPSTREAM_COMMIT,
         "sha256": digest,
+        "inventory_sha256": inventory_digest,
         "object_count": len(inventory),
         "manifest": output_path.name,
     }
-    inventory_data = [list(identity) for identity in inventory]
     _write_output(receipt_path, json.dumps(receipt_data, indent=2, sort_keys=True) + "\n")
-    _write_output(inventory_path, json.dumps(inventory_data, indent=2) + "\n")
+    _write_output(inventory_path, inventory_text)
+    approved = False
+    if enforce_approval and (approval_path.exists() or approval_path.is_symlink()):
+        try:
+            verify_render_approval(output_path, receipt_path, approval_path, inventory_path)
+        except RenderApprovalError as exc:
+            raise RenderApprovalError(
+                f"Candidate digest {digest} does not match the approved render. Review and re-approve explicitly with --approve-digest {digest}."
+            ) from exc
+        approved = True
     return RenderReceipt(
         source_ref=source_ref,
         source_tag=UPSTREAM_TAG,
         source_commit=UPSTREAM_COMMIT,
         sha256=digest,
+        approved=approved,
         inventory=inventory,
         output_path=output_path,
         receipt_path=receipt_path,
         inventory_path=inventory_path,
+        approval_path=approval_path,
     )
 
 
