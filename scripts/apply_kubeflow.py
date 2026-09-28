@@ -257,7 +257,7 @@ def _wait_for_crds(crd_names: Sequence[str]) -> None:
 
 
 def _apply_once(manifest: Path, receipt: Path, apply_path: Path) -> subprocess.CompletedProcess:
-    command = ["kubectl", "apply", "-f", str(apply_path)]
+    command = ["kubectl", "apply", "--server-side", "-f", str(apply_path)]
     _verify_approved(manifest, receipt)
     return _run(command)
 
@@ -285,8 +285,9 @@ def _apply_crds(manifest: Path, receipt: Path, documents: list[dict]) -> bool:
         crd_manifest.chmod(0o600)
         result = _apply_once(manifest, receipt, crd_manifest)
     if result.returncode != 0:
-        message = "\n".join(part for part in (result.stdout, result.stderr) if part).strip()
-        raise KubeflowApplyError(message or "Kubeflow CRD apply failed.")
+        raise KubeflowApplyError(
+            "Kubeflow CRD server-side apply failed; command output was withheld."
+        )
     _wait_for_crds(crd_names)
     return True
 
@@ -332,11 +333,17 @@ def apply_distribution(
         if result.returncode == 0:
             return
         message = _result_text(result)
-        if "conflict" in message.lower() or not _is_retryable_error(message):
-            raise KubeflowApplyError(message or "Kubeflow apply failed without diagnostic output.")
+        if "conflict" in message.lower():
+            raise KubeflowApplyError(
+                "Kubeflow server-side apply reported a field conflict; command output was withheld."
+            )
+        if not _is_retryable_error(message):
+            raise KubeflowApplyError(
+                "Kubeflow server-side apply failed; command output was withheld."
+            )
         if attempt == max_attempts:
             raise KubeflowApplyError(
-                f"Kubeflow apply still reports a missing CRD or unavailable dependency after the bounded retry window of at most {max_attempts} apply attempts: {message}"
+                f"Kubeflow server-side apply still reports an unavailable dependency after the bounded retry window of at most {max_attempts} apply attempts; command output was withheld."
             )
         if _is_missing_crd_error(message):
             _wait_for_crds(crd_names)

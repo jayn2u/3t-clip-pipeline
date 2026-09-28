@@ -238,15 +238,36 @@ class KubeflowApplyTests(unittest.TestCase):
         result = mock.Mock(
             returncode=1,
             stdout="",
-            stderr="Apply failed with conflict: field manager owns spec.selector",
+            stderr="Apply failed with conflict: field manager owns spec.selector; secret-data-sentinel",
         )
         with mock.patch.object(self.tools.subprocess, "run", return_value=result) as run:
-            with self.assertRaises(self.tools.KubeflowApplyError):
+            with self.assertRaises(self.tools.KubeflowApplyError) as raised:
                 self.tools.apply_distribution(self.manifest, self.receipt)
         self.assertEqual(1, run.call_count)
         command = run.call_args.args[0]
-        self.assertEqual(["kubectl", "apply", "-f"], command[:3])
+        self.assertEqual(["kubectl", "apply", "--server-side", "-f"], command[:4])
+        self.assertIn("--server-side", command)
         self.assertNotIn("--force-conflicts", command)
+        self.assertNotIn("secret-data-sentinel", str(raised.exception))
+
+    def test_crd_apply_withholds_raw_error_output(self) -> None:
+        self.require_implementation()
+        crd = {
+            "apiVersion": "apiextensions.k8s.io/v1",
+            "kind": "CustomResourceDefinition",
+            "metadata": {"name": "profiles.kubeflow.org"},
+            "spec": {},
+        }
+        manifest, receipt, inventory, approval, digest = make_render(
+            self.root,
+            extra_documents=(crd,),
+        )
+        approve_render(digest, manifest, receipt, inventory, approval)
+        result = mock.Mock(returncode=1, stdout="secret-data-sentinel", stderr="rejected")
+        with mock.patch.object(self.tools.subprocess, "run", return_value=result):
+            with self.assertRaises(self.tools.KubeflowApplyError) as raised:
+                self.tools.apply_distribution(manifest, receipt)
+        self.assertNotIn("secret-data-sentinel", str(raised.exception))
 
     def test_apply_never_exceeds_six_attempts(self) -> None:
         self.require_implementation()
@@ -325,11 +346,15 @@ class KubeflowApplyTests(unittest.TestCase):
             self.tools.apply_distribution(manifest, receipt)
         commands = [call.args[0] for call in run.call_args_list]
         self.assertEqual("apply", commands[0][1])
+        self.assertIn("--server-side", commands[0])
         self.assertNotEqual(str(manifest), commands[0][-1])
         self.assertEqual("wait", commands[1][1])
         self.assertIn("crd/profiles.kubeflow.org", commands[1])
         self.assertIn("crd/experiments.kubeflow.org", commands[1])
         self.assertNotIn("--all", commands[1])
+        self.assertIn("--server-side", commands[2])
+        self.assertNotIn("--force-conflicts", commands[0])
+        self.assertNotIn("--force-conflicts", commands[2])
         self.assertEqual(str(manifest), commands[2][-1])
 
 

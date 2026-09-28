@@ -88,11 +88,14 @@ python3 scripts/render_kubeflow.py --approve-digest <reviewed-sha256>
 The rendered manifest, receipt, inventory, and approval must remain mode 0600.
 `apply_kubeflow.py` verifies the receipt, explicit digest approval, inventory,
 Terraform ownership boundary, and private-exposure checks immediately before
-each apply. It applies CRDs first, waits only for those CRDs named in the
-approved manifest to become Established, then applies the full manifest. It
-retries only recognized missing-CRD or temporarily unavailable dependency
-errors, with no more than six apply attempts total including the CRD stage.
-Field conflicts stop immediately and are never forced.
+each apply. Both stages use server-side apply so large CRDs do not have to fit
+in the client-side `last-applied-configuration` annotation. It applies CRDs
+first, waits only for those CRDs named in the approved manifest to become
+Established, then applies the full manifest. It retries only recognized
+missing-CRD or temporarily unavailable dependency errors, with no more than six
+apply attempts total including the CRD stage. Field conflicts stop immediately
+and are never forced. Raw command output from apply failures is withheld so
+manifest or Secret contents are not repeated in error messages.
 
 ```bash
 export KUBECONFIG="$PWD/terraform/generated/kubeconfig"
