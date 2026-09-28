@@ -1,4 +1,5 @@
 resource "helm_release" "argo_workflows" {
+  count      = var.platform_mode == "argo" ? 1 : 0
   name       = "argo-workflows"
   repository = "https://argoproj.github.io/argo-helm"
   chart      = "argo-workflows"
@@ -33,6 +34,7 @@ resource "helm_release" "argo_workflows" {
 }
 
 resource "kubectl_manifest" "labclip_train" {
+  count             = var.platform_mode == "argo" ? 1 : 0
   yaml_body         = file(var.labclip_workflow_template_path)
   server_side_apply = true
 
@@ -45,4 +47,14 @@ resource "kubectl_manifest" "labclip_train" {
     kubernetes_secret.wandb,
     kubernetes_service_account.labclip_runner,
   ]
+}
+
+moved {
+  from = helm_release.argo_workflows
+  to   = helm_release.argo_workflows[0]
+}
+
+moved {
+  from = kubectl_manifest.labclip_train
+  to   = kubectl_manifest.labclip_train[0]
 }

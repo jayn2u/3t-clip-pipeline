@@ -16,6 +16,34 @@ variable "argo_namespace" {
   default     = "argo"
 }
 
+variable "platform_mode" {
+  description = "Platform that owns LabCLIP pipeline execution."
+  type        = string
+  default     = "argo"
+
+  validation {
+    condition     = contains(["argo", "kubeflow"], var.platform_mode)
+    error_message = "platform_mode must be argo or kubeflow."
+  }
+}
+
+variable "labclip_run_namespace" {
+  description = "Namespace where LabCLIP run claims and credentials are installed."
+  type        = string
+  default     = "argo"
+
+  validation {
+    condition     = can(regex("^[a-z0-9]([-a-z0-9]*[a-z0-9])?$", var.labclip_run_namespace))
+    error_message = "labclip_run_namespace must be a valid lowercase Kubernetes namespace name."
+  }
+}
+
+variable "enable_kubeflow_run_bindings" {
+  description = "Enable LabCLIP claims and run credentials after the Kubeflow namespace exists."
+  type        = bool
+  default     = false
+}
+
 variable "argo_workflows_chart_version" {
   description = "Pinned argo-workflows Helm chart version."
   type        = string

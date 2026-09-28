@@ -48,14 +48,23 @@ resource "kubernetes_persistent_volume" "cache" {
   }
 }
 
+locals {
+  cache_claims = var.platform_mode == "argo" ? var.nodes : (
+    local.kubeflow_run_bindings_enabled ? var.nodes : {}
+  )
+  cache_claim_namespace = var.platform_mode == "argo" ? (
+    kubernetes_namespace.argo.metadata[0].name
+  ) : var.labclip_run_namespace
+}
+
 resource "kubernetes_persistent_volume_claim" "cache" {
-  for_each = var.nodes
+  for_each = local.cache_claims
 
   wait_until_bound = false
 
   metadata {
     name      = each.value.cache_claim
-    namespace = kubernetes_namespace.argo.metadata[0].name
+    namespace = local.cache_claim_namespace
   }
 
   spec {
