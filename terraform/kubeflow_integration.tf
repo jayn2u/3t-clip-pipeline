@@ -13,6 +13,14 @@ data "kubernetes_resource" "kubeflow_cache" {
   }
 }
 
+data "kubernetes_resources" "kubeflow_cache_claims" {
+  count = local.kubeflow_run_bindings_enabled ? 1 : 0
+
+  api_version = "v1"
+  kind        = "PersistentVolumeClaim"
+  namespace   = var.labclip_run_namespace
+}
+
 resource "terraform_data" "kubeflow_run_bindings_guard" {
   count = local.kubeflow_run_bindings_enabled ? 1 : 0
 
@@ -40,9 +48,15 @@ resource "terraform_data" "kubeflow_run_bindings_guard" {
             try(length(data.kubernetes_resource.kubeflow_cache[node_name].object["spec"]["claimRef"]), 0) == 0
             ) || (
             data.kubernetes_resource.kubeflow_cache[node_name].object["status"]["phase"] == "Bound" &&
-            data.kubernetes_resource.kubeflow_cache[node_name].object["spec"]["claimRef"]["namespace"] == var.labclip_run_namespace &&
-            data.kubernetes_resource.kubeflow_cache[node_name].object["spec"]["claimRef"]["name"] == node.cache_claim &&
-            try(length(data.kubernetes_resource.kubeflow_cache[node_name].object["spec"]["claimRef"]["uid"]), 0) > 0
+            try(data.kubernetes_resource.kubeflow_cache[node_name].object["spec"]["claimRef"]["namespace"], "") == var.labclip_run_namespace &&
+            try(data.kubernetes_resource.kubeflow_cache[node_name].object["spec"]["claimRef"]["name"], "") == node.cache_claim &&
+            length([
+              for claim in data.kubernetes_resources.kubeflow_cache_claims[0].objects : claim
+              if claim["metadata"]["name"] == node.cache_claim &&
+              claim["metadata"]["namespace"] == var.labclip_run_namespace &&
+              try(claim["metadata"]["uid"], "") == try(data.kubernetes_resource.kubeflow_cache[node_name].object["spec"]["claimRef"]["uid"], "") &&
+              try(claim["spec"]["volumeName"], "") == node.cache_claim
+            ]) == 1
           ),
           false
         )
@@ -63,14 +77,16 @@ resource "terraform_data" "kubeflow_run_bindings_guard" {
     precondition {
       condition = alltrue([
         for node_name, node in var.nodes : try(
-          length(flatten([
-            for term in data.kubernetes_resource.kubeflow_cache[node_name].object["spec"]["nodeAffinity"]["required"]["nodeSelectorTerms"] : [
-              for expression in try(term["matchExpressions"], []) : expression
-              if try(expression["key"], "") == "kubernetes.io/hostname" &&
-              try(expression["operator"], "") == "In" &&
-              contains(try(expression["values"], []), node_name)
-            ]
-          ])) == 1,
+          length(keys(data.kubernetes_resource.kubeflow_cache[node_name].object["spec"]["nodeAffinity"])) == 1 &&
+          length(keys(data.kubernetes_resource.kubeflow_cache[node_name].object["spec"]["nodeAffinity"]["required"])) == 1 &&
+          length(data.kubernetes_resource.kubeflow_cache[node_name].object["spec"]["nodeAffinity"]["required"]["nodeSelectorTerms"]) == 1 &&
+          length(keys(data.kubernetes_resource.kubeflow_cache[node_name].object["spec"]["nodeAffinity"]["required"]["nodeSelectorTerms"][0])) == 1 &&
+          length(data.kubernetes_resource.kubeflow_cache[node_name].object["spec"]["nodeAffinity"]["required"]["nodeSelectorTerms"][0]["matchExpressions"]) == 1 &&
+          length(keys(data.kubernetes_resource.kubeflow_cache[node_name].object["spec"]["nodeAffinity"]["required"]["nodeSelectorTerms"][0]["matchExpressions"][0])) == 3 &&
+          length(data.kubernetes_resource.kubeflow_cache[node_name].object["spec"]["nodeAffinity"]["required"]["nodeSelectorTerms"][0]["matchExpressions"][0]["values"]) == 1 &&
+          data.kubernetes_resource.kubeflow_cache[node_name].object["spec"]["nodeAffinity"]["required"]["nodeSelectorTerms"][0]["matchExpressions"][0]["key"] == "kubernetes.io/hostname" &&
+          data.kubernetes_resource.kubeflow_cache[node_name].object["spec"]["nodeAffinity"]["required"]["nodeSelectorTerms"][0]["matchExpressions"][0]["operator"] == "In" &&
+          data.kubernetes_resource.kubeflow_cache[node_name].object["spec"]["nodeAffinity"]["required"]["nodeSelectorTerms"][0]["matchExpressions"][0]["values"][0] == node_name,
           false
         )
       ])

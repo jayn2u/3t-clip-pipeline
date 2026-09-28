@@ -220,23 +220,62 @@ class TerraformPlatformModeTests(unittest.TestCase):
         self.assertIn('["spec"]["nodeAffinity"]', guard)
         self.assertIn('== "Available"', pv_preflight)
         self.assertIn('== "Bound"', pv_preflight)
-        self.assertIn('["spec"]["claimRef"]["namespace"] == var.labclip_run_namespace', pv_preflight)
-        self.assertIn('["spec"]["claimRef"]["name"] == node.cache_claim', pv_preflight)
         self.assertNotIn('== "Released"', pv_preflight)
         self.assertRegex(
             pv_preflight,
             r'try\s*\(\s*length\(data\.kubernetes_resource\.kubeflow_cache\[node_name\]\.object\["spec"\]\["claimRef"\]\)\s*,\s*0\s*\)\s*==\s*0',
         )
-        self.assertRegex(
-            pv_preflight,
-            r'try\s*\(\s*length\(data\.kubernetes_resource\.kubeflow_cache\[node_name\]\.object\["spec"\]\["claimRef"\]\["uid"\]\)\s*,\s*0\s*\)\s*>\s*0',
-        )
         self.assertIn("labclip_run_namespace", guard)
         self.assertIn("cache_claim", guard)
+        claims_data_source = block(
+            integration,
+            r'data\s+"kubernetes_resources"\s+"kubeflow_cache_claims"\s*\{',
+        )
+        self.assertRegex(claims_data_source, r'kind\s*=\s*"PersistentVolumeClaim"')
+        self.assertRegex(claims_data_source, r'namespace\s*=\s*var\.labclip_run_namespace')
+        self.assertIn("data.kubernetes_resources.kubeflow_cache_claims[0].objects", pv_preflight)
+        self.assertIn(
+            'try(claim["metadata"]["uid"], "") == try(data.kubernetes_resource.kubeflow_cache[node_name].object["spec"]["claimRef"]["uid"], "")',
+            pv_preflight,
+        )
+        self.assertIn(
+            'try(data.kubernetes_resource.kubeflow_cache[node_name].object["spec"]["claimRef"]["namespace"], "") == var.labclip_run_namespace',
+            pv_preflight,
+        )
+        self.assertIn(
+            'try(data.kubernetes_resource.kubeflow_cache[node_name].object["spec"]["claimRef"]["name"], "") == node.cache_claim',
+            pv_preflight,
+        )
+        self.assertIn('try(claim["spec"]["volumeName"], "") == node.cache_claim', pv_preflight)
         self.assertRegex(
             resource("cache", "kubernetes_persistent_volume_claim", "storage.tf"),
             r'depends_on\s*=\s*\[terraform_data\.kubeflow_run_bindings_guard\]',
         )
+
+    def test_kubeflow_cache_affinity_requires_one_exact_node_match(self) -> None:
+        guard = resource(
+            "kubeflow_run_bindings_guard", "terraform_data", "kubeflow_integration.tf"
+        )
+        affinity_marker = '["spec"]["nodeAffinity"]'
+        affinity_offset = guard.index(affinity_marker)
+        affinity_start = guard.rfind("precondition {", 0, affinity_offset)
+        affinity_preflight = block(guard[affinity_start:], r'precondition\s*\{')
+        self.assertIn('length(keys(data.kubernetes_resource.kubeflow_cache[node_name].object["spec"]["nodeAffinity"])) == 1', affinity_preflight)
+        self.assertIn('["nodeAffinity"]["required"])) == 1', affinity_preflight)
+        self.assertIn('["nodeSelectorTerms"]) == 1', affinity_preflight)
+        self.assertIn('["nodeSelectorTerms"][0])) == 1', affinity_preflight)
+        self.assertIn('["matchExpressions"]) == 1', affinity_preflight)
+        self.assertIn('["matchExpressions"][0])) == 3', affinity_preflight)
+        self.assertIn('["values"]) == 1', affinity_preflight)
+        self.assertIn('== "kubernetes.io/hostname"', affinity_preflight)
+        self.assertIn('== "In"', affinity_preflight)
+        self.assertIn('[0] == node_name', affinity_preflight)
+
+    def test_runbook_defines_profile_namespace_before_using_it(self) -> None:
+        readme = (TERRAFORM_ROOT / "README.md").read_text(encoding="utf-8")
+        declaration = readme.index("LABCLIP_RUN_NAMESPACE=")
+        first_use = readme.index('kubectl -n "$LABCLIP_RUN_NAMESPACE"')
+        self.assertLess(declaration, first_use)
 
 
 if __name__ == "__main__":

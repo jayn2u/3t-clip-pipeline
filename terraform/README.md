@@ -118,6 +118,7 @@ target-namespace claim remains, that the PVs have the expected local paths and
 node affinity, and that both host-data fingerprints still match:
 
 ```bash
+LABCLIP_RUN_NAMESPACE="replace-with-profile-namespace"
 kubectl -n argo get pvc labclip-cache-vis-lab labclip-cache-ubuntu --ignore-not-found -o yaml
 kubectl -n "$LABCLIP_RUN_NAMESPACE" get pvc labclip-cache-vis-lab labclip-cache-ubuntu --ignore-not-found -o yaml
 kubectl get pv labclip-cache-vis-lab labclip-cache-ubuntu -o yaml
