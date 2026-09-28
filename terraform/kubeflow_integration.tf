@@ -45,7 +45,13 @@ resource "terraform_data" "kubeflow_run_bindings_guard" {
         for node_name, node in var.nodes : try(
           (
             data.kubernetes_resource.kubeflow_cache[node_name].object["status"]["phase"] == "Available" &&
-            try(length(data.kubernetes_resource.kubeflow_cache[node_name].object["spec"]["claimRef"]), 0) == 0
+            try(
+              length([
+                for claim_ref_value in values(data.kubernetes_resource.kubeflow_cache[node_name].object["spec"]["claimRef"]) : claim_ref_value
+                if claim_ref_value != null
+              ]) == 0,
+              true
+            )
             ) || (
             data.kubernetes_resource.kubeflow_cache[node_name].object["status"]["phase"] == "Bound" &&
             try(data.kubernetes_resource.kubeflow_cache[node_name].object["spec"]["claimRef"]["namespace"], "") == var.labclip_run_namespace &&
@@ -80,7 +86,11 @@ resource "terraform_data" "kubeflow_run_bindings_guard" {
           length(keys(data.kubernetes_resource.kubeflow_cache[node_name].object["spec"]["nodeAffinity"])) == 1 &&
           length(keys(data.kubernetes_resource.kubeflow_cache[node_name].object["spec"]["nodeAffinity"]["required"])) == 1 &&
           length(data.kubernetes_resource.kubeflow_cache[node_name].object["spec"]["nodeAffinity"]["required"]["nodeSelectorTerms"]) == 1 &&
-          length(keys(data.kubernetes_resource.kubeflow_cache[node_name].object["spec"]["nodeAffinity"]["required"]["nodeSelectorTerms"][0])) == 1 &&
+          contains(keys(data.kubernetes_resource.kubeflow_cache[node_name].object["spec"]["nodeAffinity"]["required"]["nodeSelectorTerms"][0]), "matchExpressions") &&
+          alltrue([
+            for term_key in keys(data.kubernetes_resource.kubeflow_cache[node_name].object["spec"]["nodeAffinity"]["required"]["nodeSelectorTerms"][0]) : contains(["matchExpressions", "matchFields"], term_key)
+          ]) &&
+          try(length(data.kubernetes_resource.kubeflow_cache[node_name].object["spec"]["nodeAffinity"]["required"]["nodeSelectorTerms"][0]["matchFields"]), 0) == 0 &&
           length(data.kubernetes_resource.kubeflow_cache[node_name].object["spec"]["nodeAffinity"]["required"]["nodeSelectorTerms"][0]["matchExpressions"]) == 1 &&
           length(keys(data.kubernetes_resource.kubeflow_cache[node_name].object["spec"]["nodeAffinity"]["required"]["nodeSelectorTerms"][0]["matchExpressions"][0])) == 3 &&
           length(data.kubernetes_resource.kubeflow_cache[node_name].object["spec"]["nodeAffinity"]["required"]["nodeSelectorTerms"][0]["matchExpressions"][0]["values"]) == 1 &&

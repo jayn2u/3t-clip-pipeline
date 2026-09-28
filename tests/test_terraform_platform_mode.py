@@ -221,10 +221,6 @@ class TerraformPlatformModeTests(unittest.TestCase):
         self.assertIn('== "Available"', pv_preflight)
         self.assertIn('== "Bound"', pv_preflight)
         self.assertNotIn('== "Released"', pv_preflight)
-        self.assertRegex(
-            pv_preflight,
-            r'try\s*\(\s*length\(data\.kubernetes_resource\.kubeflow_cache\[node_name\]\.object\["spec"\]\["claimRef"\]\)\s*,\s*0\s*\)\s*==\s*0',
-        )
         self.assertIn("labclip_run_namespace", guard)
         self.assertIn("cache_claim", guard)
         claims_data_source = block(
@@ -263,13 +259,46 @@ class TerraformPlatformModeTests(unittest.TestCase):
         self.assertIn('length(keys(data.kubernetes_resource.kubeflow_cache[node_name].object["spec"]["nodeAffinity"])) == 1', affinity_preflight)
         self.assertIn('["nodeAffinity"]["required"])) == 1', affinity_preflight)
         self.assertIn('["nodeSelectorTerms"]) == 1', affinity_preflight)
-        self.assertIn('["nodeSelectorTerms"][0])) == 1', affinity_preflight)
         self.assertIn('["matchExpressions"]) == 1', affinity_preflight)
         self.assertIn('["matchExpressions"][0])) == 3', affinity_preflight)
         self.assertIn('["values"]) == 1', affinity_preflight)
         self.assertIn('== "kubernetes.io/hostname"', affinity_preflight)
         self.assertIn('== "In"', affinity_preflight)
         self.assertIn('[0] == node_name', affinity_preflight)
+
+    def test_provider_null_claimref_is_unclaimed_and_non_null_fields_are_rejected(self) -> None:
+        guard = resource(
+            "kubeflow_run_bindings_guard", "terraform_data", "kubeflow_integration.tf"
+        )
+        pv_preflight = block(
+            guard,
+            r'precondition\s*\{\s*condition\s*=\s*alltrue',
+        )
+        self.assertRegex(
+            pv_preflight,
+            r'length\(\[\s*for claim_ref_value in values\(data\.kubernetes_resource\.kubeflow_cache\[node_name\]\.object\["spec"\]\["claimRef"\]\)\s*:\s*claim_ref_value\s*if\s*claim_ref_value\s*!=\s*null\s*\]\)\s*==\s*0',
+        )
+
+    def test_provider_null_match_fields_are_allowed_but_non_null_fields_are_rejected(self) -> None:
+        guard = resource(
+            "kubeflow_run_bindings_guard", "terraform_data", "kubeflow_integration.tf"
+        )
+        affinity_marker = '["spec"]["nodeAffinity"]'
+        affinity_offset = guard.index(affinity_marker)
+        affinity_start = guard.rfind("precondition {", 0, affinity_offset)
+        affinity_preflight = block(guard[affinity_start:], r'precondition\s*\{')
+        self.assertIn(
+            'contains(keys(data.kubernetes_resource.kubeflow_cache[node_name].object["spec"]["nodeAffinity"]["required"]["nodeSelectorTerms"][0]), "matchExpressions")',
+            affinity_preflight,
+        )
+        self.assertIn(
+            'contains(["matchExpressions", "matchFields"], term_key)',
+            affinity_preflight,
+        )
+        self.assertRegex(
+            affinity_preflight,
+            r'try\(length\(data\.kubernetes_resource\.kubeflow_cache\[node_name\]\.object\["spec"\]\["nodeAffinity"\]\["required"\]\["nodeSelectorTerms"\]\[0\]\["matchFields"\]\),\s*0\)\s*==\s*0',
+        )
 
     def test_runbook_defines_profile_namespace_before_using_it(self) -> None:
         readme = (TERRAFORM_ROOT / "README.md").read_text(encoding="utf-8")
