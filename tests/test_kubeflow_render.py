@@ -157,6 +157,82 @@ class KubeflowRenderTests(unittest.TestCase):
             "kubeflow-user-labclip-example-com", profile["metadata"]["name"]
         )
 
+    def test_upstream_example_namespace_is_absent_from_the_render(self) -> None:
+        self.load_documents()
+        self.assertFalse("kubeflow-user-example-com" in self.manifest_path.read_text())
+
+    def test_model_registry_objects_and_service_references_use_the_profile_namespace(self) -> None:
+        documents = self.load_documents()
+        namespace_resources = (
+            ("v1", "ServiceAccount", "model-registry-server"),
+            ("v1", "ServiceAccount", "model-registry-ui"),
+            ("v1", "ConfigMap", "model-registry-configmap"),
+            ("v1", "ConfigMap", "model-registry-db-parameters"),
+            ("v1", "Secret", "model-registry-db-secrets"),
+            ("v1", "Service", "model-registry-db"),
+            ("v1", "Service", "model-registry-service"),
+            ("v1", "Service", "model-registry-ui-service"),
+            ("v1", "PersistentVolumeClaim", "metadata-postgres"),
+            ("apps/v1", "Deployment", "model-registry-db"),
+            ("apps/v1", "Deployment", "model-registry-deployment"),
+            ("apps/v1", "Deployment", "model-registry-ui"),
+            ("networking.istio.io/v1alpha3", "DestinationRule", "model-registry-service"),
+            ("networking.istio.io/v1alpha3", "DestinationRule", "model-registry-ui"),
+            ("networking.istio.io/v1alpha3", "VirtualService", "model-registry"),
+            ("networking.istio.io/v1alpha3", "VirtualService", "model-registry-ui"),
+            ("security.istio.io/v1beta1", "AuthorizationPolicy", "model-registry-service"),
+            ("security.istio.io/v1beta1", "AuthorizationPolicy", "model-registry-ui"),
+        )
+        for api_version, kind, name in namespace_resources:
+            with self.subTest(kind=kind, name=name):
+                resource = next(
+                    item
+                    for item in documents
+                    if item.get("apiVersion") == api_version
+                    and item.get("kind") == kind
+                    and item.get("metadata", {}).get("name") == name
+                )
+                self.assertEqual(self.material.profile_name, resource["metadata"]["namespace"])
+        for name in (
+            "model-registry-create-sars-binding",
+            "model-registry-retrieve-clusterrolebindings-binding",
+            "model-registry-ui-services-reader-binding",
+        ):
+            with self.subTest(cluster_role_binding=name):
+                binding = next(
+                    item
+                    for item in documents
+                    if item.get("kind") == "ClusterRoleBinding"
+                    and item.get("metadata", {}).get("name") == name
+                )
+                self.assertEqual(self.material.profile_name, binding["subjects"][0]["namespace"])
+        expected_hosts = {
+            "model-registry-service": f"model-registry-service.{self.material.profile_name}.svc.cluster.local",
+            "model-registry-ui": f"model-registry-ui-service.{self.material.profile_name}.svc.cluster.local",
+        }
+        for name, expected_host in expected_hosts.items():
+            with self.subTest(destination_rule=name):
+                rule = next(
+                    item
+                    for item in documents
+                    if item.get("kind") == "DestinationRule"
+                    and item.get("metadata", {}).get("name") == name
+                )
+                self.assertEqual(expected_host, rule["spec"]["host"])
+        for name, expected_host in (
+            ("model-registry", expected_hosts["model-registry-service"]),
+            ("model-registry-ui", expected_hosts["model-registry-ui"]),
+        ):
+            with self.subTest(virtual_service=name):
+                service = next(
+                    item
+                    for item in documents
+                    if item.get("kind") == "VirtualService"
+                    and item.get("metadata", {}).get("name") == name
+                )
+                actual_host = service["spec"]["http"][0]["route"][0]["destination"]["host"]
+                self.assertEqual(expected_host, actual_host)
+
     def test_gateway_is_cluster_ip(self) -> None:
         documents = self.load_documents()
         gateway = [
@@ -354,6 +430,27 @@ class RenderApprovalTests(unittest.TestCase):
                 self.approval_path,
             )
         self.assertFalse(self.approval_path.exists())
+
+
+class ModelRegistryNamespacePatchTests(unittest.TestCase):
+    def test_missing_allowlisted_objects_fail_closed(self) -> None:
+        tools = load_tools()
+        source = yaml.safe_dump(
+            {
+                "apiVersion": "v1",
+                "kind": "ConfigMap",
+                "metadata": {"name": "unrelated"},
+                "data": {
+                    "references": " ".join(
+                        [tools.MODEL_REGISTRY_EXAMPLE_NAMESPACE]
+                        * tools.MODEL_REGISTRY_NAMESPACE_REFERENCE_COUNT
+                    )
+                },
+            },
+            sort_keys=False,
+        )
+        with self.assertRaisesRegex(ValueError, "allowlisted object is missing or duplicated"):
+            tools.patch_model_registry_namespace(source, "kubeflow-user-labclip-example-com")
 
 
 if __name__ == "__main__":

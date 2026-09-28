@@ -31,6 +31,75 @@ IDENTITY_KEYS = {
     "user_id",
 }
 OVERLAY_ROOT = Path(__file__).resolve().parents[1] / "kubeflow/overlays/labclip"
+MODEL_REGISTRY_EXAMPLE_NAMESPACE = "kubeflow-user-example-com"
+MODEL_REGISTRY_NAMESPACE_RESOURCES = (
+    ("v1", "ServiceAccount", "model-registry-server"),
+    ("v1", "ServiceAccount", "model-registry-ui"),
+    ("v1", "ConfigMap", "model-registry-configmap"),
+    ("v1", "ConfigMap", "model-registry-db-parameters"),
+    ("v1", "Secret", "model-registry-db-secrets"),
+    ("v1", "Service", "model-registry-db"),
+    ("v1", "Service", "model-registry-service"),
+    ("v1", "Service", "model-registry-ui-service"),
+    ("v1", "PersistentVolumeClaim", "metadata-postgres"),
+    ("apps/v1", "Deployment", "model-registry-db"),
+    ("apps/v1", "Deployment", "model-registry-deployment"),
+    ("apps/v1", "Deployment", "model-registry-ui"),
+    ("networking.istio.io/v1alpha3", "DestinationRule", "model-registry-service"),
+    ("networking.istio.io/v1alpha3", "DestinationRule", "model-registry-ui"),
+    ("networking.istio.io/v1alpha3", "VirtualService", "model-registry"),
+    ("networking.istio.io/v1alpha3", "VirtualService", "model-registry-ui"),
+    ("security.istio.io/v1beta1", "AuthorizationPolicy", "model-registry-service"),
+    ("security.istio.io/v1beta1", "AuthorizationPolicy", "model-registry-ui"),
+)
+MODEL_REGISTRY_SUBJECT_NAMESPACE_RESOURCES = (
+    ("rbac.authorization.k8s.io/v1", "ClusterRoleBinding", "model-registry-create-sars-binding"),
+    (
+        "rbac.authorization.k8s.io/v1",
+        "ClusterRoleBinding",
+        "model-registry-retrieve-clusterrolebindings-binding",
+    ),
+    (
+        "rbac.authorization.k8s.io/v1",
+        "ClusterRoleBinding",
+        "model-registry-ui-services-reader-binding",
+    ),
+)
+MODEL_REGISTRY_SERVICE_HOST_RESOURCES = (
+    (
+        "networking.istio.io/v1alpha3",
+        "DestinationRule",
+        "model-registry-service",
+        ("spec", "host"),
+        "model-registry-service",
+    ),
+    (
+        "networking.istio.io/v1alpha3",
+        "DestinationRule",
+        "model-registry-ui",
+        ("spec", "host"),
+        "model-registry-ui-service",
+    ),
+    (
+        "networking.istio.io/v1alpha3",
+        "VirtualService",
+        "model-registry",
+        ("spec", "http", 0, "route", 0, "destination", "host"),
+        "model-registry-service",
+    ),
+    (
+        "networking.istio.io/v1alpha3",
+        "VirtualService",
+        "model-registry-ui",
+        ("spec", "http", 0, "route", 0, "destination", "host"),
+        "model-registry-ui-service",
+    ),
+)
+MODEL_REGISTRY_NAMESPACE_REFERENCE_COUNT = (
+    len(MODEL_REGISTRY_NAMESPACE_RESOURCES)
+    + len(MODEL_REGISTRY_SUBJECT_NAMESPACE_RESOURCES)
+    + len(MODEL_REGISTRY_SERVICE_HOST_RESOURCES)
+)
 
 
 @dataclass(frozen=True)
@@ -346,6 +415,121 @@ def _object_identity(document: dict) -> tuple[str, str, str, str]:
     return identity
 
 
+def _yaml_mapping_value(node, key: str):
+    if not isinstance(node, yaml.MappingNode):
+        raise ValueError("The pinned Model Registry YAML structure changed.")
+    matches = [
+        value_node
+        for key_node, value_node in node.value
+        if isinstance(key_node, yaml.ScalarNode) and key_node.value == key
+    ]
+    if len(matches) != 1:
+        raise ValueError("The pinned Model Registry YAML structure changed.")
+    return matches[0]
+
+
+def _yaml_node_at_path(node, path: tuple[str | int, ...]):
+    current = node
+    for segment in path:
+        if isinstance(segment, int):
+            if not isinstance(current, yaml.SequenceNode) or segment >= len(current.value):
+                raise ValueError("The pinned Model Registry field path changed.")
+            current = current.value[segment]
+        else:
+            current = _yaml_mapping_value(current, segment)
+    if not isinstance(current, yaml.ScalarNode) or current.tag != "tag:yaml.org,2002:str":
+        raise ValueError("The pinned Model Registry field is no longer a string scalar.")
+    return current
+
+
+def _yaml_object_target(node) -> tuple[str, str, str]:
+    api_version = _yaml_mapping_value(node, "apiVersion")
+    kind = _yaml_mapping_value(node, "kind")
+    metadata = _yaml_mapping_value(node, "metadata")
+    name = _yaml_mapping_value(metadata, "name")
+    if not all(isinstance(value, yaml.ScalarNode) for value in (api_version, kind, name)):
+        raise ValueError("The pinned Model Registry object identity changed.")
+    return api_version.value, kind.value, name.value
+
+
+def _yaml_scalar_occurrences(node, needle: str) -> int:
+    if isinstance(node, yaml.ScalarNode):
+        return node.value.count(needle) if node.tag == "tag:yaml.org,2002:str" else 0
+    if isinstance(node, yaml.SequenceNode):
+        return sum(_yaml_scalar_occurrences(item, needle) for item in node.value)
+    if isinstance(node, yaml.MappingNode):
+        return sum(
+            _yaml_scalar_occurrences(key_node, needle)
+            + _yaml_scalar_occurrences(value_node, needle)
+            for key_node, value_node in node.value
+        )
+    return 0
+
+
+def patch_model_registry_namespace(rendered: str, profile_name: str) -> str:
+    if re.fullmatch(r"[a-z0-9]([-a-z0-9]*[a-z0-9])?", profile_name) is None:
+        raise ValueError("The Kubeflow Profile namespace is invalid.")
+    try:
+        roots = [root for root in yaml.compose_all(rendered) if root is not None]
+    except yaml.YAMLError as exc:
+        raise ValueError("The pinned Kubeflow render is not valid YAML.") from exc
+    occurrences = sum(
+        _yaml_scalar_occurrences(root, MODEL_REGISTRY_EXAMPLE_NAMESPACE) for root in roots
+    )
+    if occurrences != MODEL_REGISTRY_NAMESPACE_REFERENCE_COUNT:
+        raise ValueError(
+            "The pinned Model Registry namespace reference count changed; refusing an incomplete patch."
+        )
+    nodes_by_target: dict[tuple[str, str, str], list] = {}
+    for root in roots:
+        target = _yaml_object_target(root)
+        nodes_by_target.setdefault(target, []).append(root)
+    patch_specs = [
+        (target, ("metadata", "namespace"), MODEL_REGISTRY_EXAMPLE_NAMESPACE)
+        for target in MODEL_REGISTRY_NAMESPACE_RESOURCES
+    ]
+    patch_specs.extend(
+        (
+            target,
+            ("subjects", 0, "namespace"),
+            MODEL_REGISTRY_EXAMPLE_NAMESPACE,
+        )
+        for target in MODEL_REGISTRY_SUBJECT_NAMESPACE_RESOURCES
+    )
+    patch_specs.extend(
+        (
+            (api_version, kind, name),
+            path,
+            f"{service}.{MODEL_REGISTRY_EXAMPLE_NAMESPACE}.svc.cluster.local",
+        )
+        for api_version, kind, name, path, service in MODEL_REGISTRY_SERVICE_HOST_RESOURCES
+    )
+    if len(patch_specs) != MODEL_REGISTRY_NAMESPACE_REFERENCE_COUNT:
+        raise ValueError("The Model Registry namespace patch allowlist is inconsistent.")
+    replacements = []
+    for target, field_path, expected_value in patch_specs:
+        matches = nodes_by_target.get(target, [])
+        if len(matches) != 1:
+            raise ValueError("A Model Registry allowlisted object is missing or duplicated.")
+        value_node = _yaml_node_at_path(matches[0], field_path)
+        if value_node.value != expected_value:
+            raise ValueError("An allowlisted Model Registry namespace field changed upstream.")
+        start = value_node.start_mark.index
+        end = value_node.end_mark.index
+        if rendered[start:end] != expected_value:
+            raise ValueError("An allowlisted Model Registry value no longer has its pinned YAML form.")
+        replacements.append((start, end, expected_value.replace(MODEL_REGISTRY_EXAMPLE_NAMESPACE, profile_name)))
+    offsets = [(start, end) for start, end, _ in replacements]
+    if len(offsets) != len(set(offsets)):
+        raise ValueError("The Model Registry patch allowlist contains overlapping fields.")
+    patched = rendered
+    for start, end, replacement in sorted(replacements, reverse=True):
+        patched = patched[:start] + replacement + patched[end:]
+    if MODEL_REGISTRY_EXAMPLE_NAMESPACE in patched:
+        raise ValueError("An unallowlisted upstream example namespace remains in the render.")
+    return patched
+
+
 def _find_one(documents: list[dict], kind: str, name: str, namespace: str) -> dict:
     matches = [
         document
@@ -362,6 +546,8 @@ def _find_one(documents: list[dict], kind: str, name: str, namespace: str) -> di
 def _validate_rendered(documents: list[dict], rendered: str) -> None:
     if UPSTREAM_DEFAULT_EMAIL in rendered:
         raise ValueError("The rendered distribution contains the upstream sample Dex credential.")
+    if MODEL_REGISTRY_EXAMPLE_NAMESPACE in rendered:
+        raise ValueError("The rendered distribution contains the upstream example Profile namespace.")
     identities = [_object_identity(document) for document in documents]
     if len(identities) != len(set(identities)):
         raise ValueError("The rendered distribution contains duplicate Kubernetes object identities.")
@@ -603,12 +789,20 @@ def render_distribution(
         raise RuntimeError("Timed out rendering the pinned Kubeflow distribution.") from exc
     if result.returncode != 0:
         raise RuntimeError(f"kubectl kustomize failed with exit code {result.returncode}.")
-    documents = _load_yaml_documents(result.stdout)
-    _validate_rendered(documents, result.stdout)
+    upstream_documents = _load_yaml_documents(result.stdout)
+    dex_config_map = _find_one(upstream_documents, "ConfigMap", "dex", "auth")
+    dex_settings = yaml.safe_load(dex_config_map.get("data", {}).get("config.yaml", ""))
+    dex_users = dex_settings.get("staticPasswords", [])
+    if len(dex_users) != 1 or not dex_users[0].get("email"):
+        raise ValueError("The Dex identity is required to derive the Kubeflow Profile namespace.")
+    profile_name = _validate_email(dex_users[0]["email"])[1]
+    patched_render = patch_model_registry_namespace(result.stdout, profile_name)
+    documents = _load_yaml_documents(patched_render)
+    _validate_rendered(documents, patched_render)
     inventory = _build_inventory(documents)
-    digest = hashlib.sha256(result.stdout.encode("utf-8")).hexdigest()
+    digest = hashlib.sha256(patched_render.encode("utf-8")).hexdigest()
     _private_directory(output_path.parent)
-    _write_output(output_path, result.stdout)
+    _write_output(output_path, patched_render)
     receipt_path = output_path.parent / "receipt.json"
     inventory_path = output_path.parent / "inventory.json"
     approval_path = output_path.parent / "approval.json"
