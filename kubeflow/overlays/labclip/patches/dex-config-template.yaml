@@ -1,0 +1,30 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dex
+  namespace: auth
+data:
+  config.yaml: |
+    issuer: http://dex.auth.svc.cluster.local:5556/dex
+    storage:
+      type: kubernetes
+      config:
+        inCluster: true
+    web:
+      http: 0.0.0.0:5556
+    logger:
+      level: "debug"
+      format: text
+    oauth2:
+      skipApprovalScreen: true
+    enablePasswordDB: true
+    staticPasswords:
+    - email: __DEX_EMAIL__
+      hashFromEnv: DEX_USER_PASSWORD
+      username: __DEX_USERNAME__
+      userID: "__DEX_USER_ID__"
+    staticClients:
+    - idEnv: OIDC_CLIENT_ID
+      redirectURIs: ["/oauth2/callback"]
+      name: 'Dex Login Application'
+      secretEnv: OIDC_CLIENT_SECRET

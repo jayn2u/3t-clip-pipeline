@@ -1,0 +1,21 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: kubeflow-tailnet
+  namespace: istio-system
+spec:
+  ingressClassName: tailscale
+  tls:
+    - hosts:
+        - __TAILNET_HOSTNAME__
+  rules:
+    - host: __TAILNET_HOSTNAME__
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: istio-ingressgateway
+                port:
+                  number: 80

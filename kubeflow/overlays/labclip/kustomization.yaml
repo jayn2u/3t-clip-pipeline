@@ -1,0 +1,32 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - github.com/kubeflow/community-distribution/example?ref=f09f3eeaa25cc852665f460497a42b7fc68639ac
+  - generated/kubeflow-tailnet-ingress.yaml
+
+patches:
+  - path: generated/dex-config-map.yaml
+    target:
+      version: v1
+      kind: ConfigMap
+      name: dex
+      namespace: auth
+  - path: generated/dex-passwords.yaml
+    target:
+      version: v1
+      kind: Secret
+      name: dex-passwords
+      namespace: auth
+  - path: generated/profile-identity.yaml
+    target:
+      group: kubeflow.org
+      version: v1beta1
+      kind: Profile
+      name: kubeflow-user-example-com
+  - path: patches/ingress-gateway-service.yaml
+    target:
+      version: v1
+      kind: Service
+      name: istio-ingressgateway
+      namespace: istio-system
