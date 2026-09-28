@@ -666,7 +666,9 @@ def _find_one(documents: list[dict], kind: str, name: str, namespace: str) -> di
     return matches[0]
 
 
-def _validate_istio_cni_daemonsets(documents: list[dict]) -> None:
+def _validate_istio_cni_daemonsets(
+    documents: list[dict], *, required: bool = False
+) -> None:
     expected_names = {config[1] for config in ISTIO_CNI_NODE_CONFIGS}
     daemonsets = [
         document
@@ -675,6 +677,8 @@ def _validate_istio_cni_daemonsets(documents: list[dict]) -> None:
         and document.get("metadata", {}).get("name", "").startswith("istio-cni-node")
     ]
     if not daemonsets:
+        if required:
+            raise ValueError("The full Kubeflow render is missing the site-specific Istio CNI DaemonSets.")
         return
     if {item.get("metadata", {}).get("name") for item in daemonsets} != expected_names:
         raise ValueError("The rendered Istio CNI DaemonSet inventory is unexpected.")
@@ -720,12 +724,69 @@ def _validate_istio_cni_daemonsets(documents: list[dict]) -> None:
         raise ValueError("The Istio CNI DaemonSet selectors must be disjoint.")
 
 
-def _validate_rendered(documents: list[dict], rendered: str) -> None:
+def _validate_trainer_webhook_placement(
+    documents: list[dict], *, required: bool = False
+) -> None:
+    deployments = [
+        document
+        for document in documents
+        if document.get("kind") == "Deployment"
+        and document.get("metadata", {}).get("name") == "kubeflow-trainer-controller-manager"
+    ]
+    if not deployments:
+        if required:
+            raise ValueError("The full Kubeflow render is missing the Trainer webhook controller Deployment.")
+        return
+    if len(deployments) != 1:
+        raise ValueError("The Trainer webhook controller Deployment is duplicated.")
+    deployment = deployments[0]
+    if deployment.get("apiVersion") != "apps/v1" or deployment.get("metadata", {}).get("namespace") != "kubeflow-system":
+        raise ValueError("The pinned Trainer webhook controller Deployment identity changed.")
+    expected_labels = {
+        "app.kubernetes.io/component": "manager",
+        "app.kubernetes.io/name": "trainer",
+        "app.kubernetes.io/part-of": "kubeflow",
+    }
+    spec = deployment.get("spec", {})
+    if set(spec) != {"selector", "template"} or spec.get("selector", {}).get("matchLabels") != expected_labels:
+        raise ValueError("The pinned Trainer webhook controller selector shape changed.")
+    template = spec.get("template", {})
+    template_metadata = template.get("metadata", {})
+    if template_metadata.get("labels") != expected_labels:
+        raise ValueError("The pinned Trainer webhook controller pod labels changed.")
+    if template_metadata.get("annotations") != {"traffic.sidecar.istio.io/excludeInboundPorts": "9443"}:
+        raise ValueError("The pinned Trainer webhook Istio annotation changed.")
+    pod_spec = template.get("spec", {})
+    if set(pod_spec) != {"containers", "nodeSelector", "serviceAccountName", "volumes"}:
+        raise ValueError("The pinned Trainer webhook pod spec changed outside site placement.")
+    if pod_spec.get("nodeSelector") != {"kubernetes.io/hostname": "vis-lab"}:
+        raise ValueError("The Trainer webhook controller must remain pinned to vis-lab.")
+    if pod_spec.get("serviceAccountName") != "kubeflow-trainer-controller-manager":
+        raise ValueError("The pinned Trainer webhook service account changed.")
+    containers = pod_spec.get("containers", [])
+    if len(containers) != 1 or containers[0].get("name") != "manager":
+        raise ValueError("The pinned Trainer webhook manager container shape changed.")
+    if containers[0].get("image") != "ghcr.io/kubeflow/trainer/trainer-controller-manager:v2.2.0":
+        raise ValueError("The pinned Trainer webhook manager image changed.")
+    ports = {port.get("name"): port.get("containerPort") for port in containers[0].get("ports", [])}
+    if ports != {"health": 8081, "metrics": 8443, "webhook": 9443, "status-server": 10443}:
+        raise ValueError("The pinned Trainer webhook manager ports changed.")
+    if {volume.get("name") for volume in pod_spec.get("volumes", [])} != {
+        "kubeflow-trainer-config",
+        "cert",
+    }:
+        raise ValueError("The pinned Trainer webhook manager volumes changed.")
+
+
+def _validate_rendered(
+    documents: list[dict], rendered: str, *, require_full_platform: bool = False
+) -> None:
     if UPSTREAM_DEFAULT_EMAIL in rendered:
         raise ValueError("The rendered distribution contains the upstream sample Dex credential.")
     if MODEL_REGISTRY_EXAMPLE_NAMESPACE in rendered:
         raise ValueError("The rendered distribution contains the upstream example Profile namespace.")
-    _validate_istio_cni_daemonsets(documents)
+    _validate_istio_cni_daemonsets(documents, required=require_full_platform)
+    _validate_trainer_webhook_placement(documents, required=require_full_platform)
     identities = [_object_identity(document) for document in documents]
     if len(identities) != len(set(identities)):
         raise ValueError("The rendered distribution contains duplicate Kubernetes object identities.")
@@ -838,7 +899,11 @@ def _validate_candidate_artifacts(
         raise RenderApprovalError("The candidate receipt does not match the current manifest bytes.")
     documents = _load_yaml_documents(rendered)
     try:
-        _validate_rendered(documents, rendered)
+        _validate_rendered(
+            documents,
+            rendered,
+            require_full_platform=receipt.get("object_count", 0) > 100,
+        )
     except (AttributeError, KeyError, TypeError, ValueError) as exc:
         raise RenderApprovalError("The candidate manifest failed the Kubeflow safety checks.") from exc
     inventory = _build_inventory(documents)
@@ -977,7 +1042,7 @@ def render_distribution(
     patched_render = patch_model_registry_namespace(result.stdout, profile_name)
     patched_render = patch_istio_cni_daemonsets(patched_render)
     documents = _load_yaml_documents(patched_render)
-    _validate_rendered(documents, patched_render)
+    _validate_rendered(documents, patched_render, require_full_platform=True)
     inventory = _build_inventory(documents)
     digest = hashlib.sha256(patched_render.encode("utf-8")).hexdigest()
     _private_directory(output_path.parent)

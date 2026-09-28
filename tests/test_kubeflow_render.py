@@ -302,6 +302,62 @@ class KubeflowRenderTests(unittest.TestCase):
             selectors[1]["k8s-app"],
         )
 
+    def test_trainer_webhook_deployment_is_pinned_to_vis_lab(self) -> None:
+        documents = self.load_documents()
+        deployment = next(
+            item
+            for item in documents
+            if item.get("kind") == "Deployment"
+            and item.get("metadata", {}).get("name") == "kubeflow-trainer-controller-manager"
+            and item.get("metadata", {}).get("namespace") == "kubeflow-system"
+        )
+        self.assertEqual(
+            {"kubernetes.io/hostname": "vis-lab"},
+            deployment["spec"]["template"]["spec"].get("nodeSelector"),
+        )
+        labels = {
+            "app.kubernetes.io/component": "manager",
+            "app.kubernetes.io/name": "trainer",
+            "app.kubernetes.io/part-of": "kubeflow",
+        }
+        spec = deployment["spec"]
+        template = spec["template"]
+        pod_spec = template["spec"]
+        self.assertEqual({"selector", "template"}, set(spec))
+        self.assertEqual(labels, spec["selector"]["matchLabels"])
+        self.assertEqual(labels, template["metadata"]["labels"])
+        self.assertEqual(
+            {"traffic.sidecar.istio.io/excludeInboundPorts": "9443"},
+            template["metadata"]["annotations"],
+        )
+        self.assertEqual(
+            {"containers", "nodeSelector", "serviceAccountName", "volumes"},
+            set(pod_spec),
+        )
+        self.assertEqual("kubeflow-trainer-controller-manager", pod_spec["serviceAccountName"])
+        self.assertEqual(["manager"], [container["name"] for container in pod_spec["containers"]])
+        selector_patch = yaml.safe_load(
+            (OVERLAY_ROOT / "patches/trainer-controller-manager-node-selector.yaml").read_text()
+        )
+        self.assertEqual(
+            {
+                "apiVersion": "apps/v1",
+                "kind": "Deployment",
+                "metadata": {
+                    "name": "kubeflow-trainer-controller-manager",
+                    "namespace": "kubeflow-system",
+                },
+                "spec": {
+                    "template": {
+                        "spec": {
+                            "nodeSelector": {"kubernetes.io/hostname": "vis-lab"}
+                        }
+                    }
+                },
+            },
+            selector_patch,
+        )
+
     def test_render_inventory_is_deterministic(self) -> None:
         self.require_implementation()
         first_inventory = self.receipt.inventory
@@ -584,6 +640,13 @@ class IstioCniPatchTests(unittest.TestCase):
         source = yaml.safe_dump(daemonset, sort_keys=False)
         with self.assertRaisesRegex(ValueError, "selector changed"):
             tools.patch_istio_cni_daemonsets(source)
+
+
+class TrainerPlacementTests(unittest.TestCase):
+    def test_missing_pinned_deployment_fails_closed_for_full_render(self) -> None:
+        tools = load_tools()
+        with self.assertRaisesRegex(ValueError, "missing the Trainer webhook controller Deployment"):
+            tools._validate_trainer_webhook_placement([], required=True)
 
 
 if __name__ == "__main__":

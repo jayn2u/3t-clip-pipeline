@@ -30,3 +30,10 @@ patches:
       kind: Service
       name: istio-ingressgateway
       namespace: istio-system
+  - path: patches/trainer-controller-manager-node-selector.yaml
+    target:
+      group: apps
+      version: v1
+      kind: Deployment
+      name: kubeflow-trainer-controller-manager
+      namespace: kubeflow-system
