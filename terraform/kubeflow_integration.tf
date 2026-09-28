@@ -1,5 +1,78 @@
 locals {
-  kubeflow_run_bindings_enabled = var.platform_mode == "kubeflow" && var.enable_kubeflow_run_bindings
+  kubeflow_run_bindings_enabled    = var.platform_mode == "kubeflow" && var.enable_kubeflow_run_bindings
+  kubeflow_gpu_runtime_policy_name = "labclip-kubeflow-gpu-runtime"
+  kubeflow_gpu_runtime_policy_yaml = yamlencode({
+    apiVersion = "admissionregistration.k8s.io/v1"
+    kind       = "MutatingAdmissionPolicy"
+    metadata = {
+      name = local.kubeflow_gpu_runtime_policy_name
+    }
+    spec = {
+      failurePolicy      = "Fail"
+      reinvocationPolicy = "IfNeeded"
+      matchConstraints = {
+        resourceRules = [
+          {
+            apiGroups   = [""]
+            apiVersions = ["v1"]
+            operations  = ["CREATE"]
+            resources   = ["pods"]
+          }
+        ]
+      }
+      matchConditions = [
+        {
+          name       = "labclip-run-namespace"
+          expression = "request.namespace == ${jsonencode(var.labclip_run_namespace)}"
+        },
+        {
+          name       = "gpu-request-present"
+          expression = <<-CEL
+            object.spec.containers.exists(container,
+              has(container.resources) &&
+              has(container.resources.requests) &&
+              "nvidia.com/gpu" in container.resources.requests
+            ) || (
+              has(object.spec.initContainers) &&
+              object.spec.initContainers.exists(container,
+                has(container.resources) &&
+                has(container.resources.requests) &&
+                "nvidia.com/gpu" in container.resources.requests
+              )
+            )
+          CEL
+        },
+        {
+          name       = "runtime-class-absent"
+          expression = "!has(object.spec.runtimeClassName)"
+        }
+      ]
+      mutations = [
+        {
+          patchType = "ApplyConfiguration"
+          applyConfiguration = {
+            expression = <<-CEL
+              Object{
+                spec: Object.spec{
+                  runtimeClassName: "nvidia"
+                }
+              }
+            CEL
+          }
+        }
+      ]
+    }
+  })
+  kubeflow_gpu_runtime_binding_yaml = yamlencode({
+    apiVersion = "admissionregistration.k8s.io/v1"
+    kind       = "MutatingAdmissionPolicyBinding"
+    metadata = {
+      name = "${local.kubeflow_gpu_runtime_policy_name}-binding"
+    }
+    spec = {
+      policyName = local.kubeflow_gpu_runtime_policy_name
+    }
+  })
 }
 
 data "kubernetes_resource" "kubeflow_cache" {
@@ -148,4 +221,25 @@ resource "kubernetes_secret" "kubeflow_wandb" {
   data = kubernetes_secret.wandb.data
 
   depends_on = [terraform_data.kubeflow_run_bindings_guard]
+}
+
+resource "kubectl_manifest" "kubeflow_gpu_runtime_policy" {
+  count = local.kubeflow_run_bindings_enabled ? 1 : 0
+
+  yaml_body         = local.kubeflow_gpu_runtime_policy_yaml
+  server_side_apply = true
+
+  depends_on = [terraform_data.kubeflow_run_bindings_guard]
+}
+
+resource "kubectl_manifest" "kubeflow_gpu_runtime_binding" {
+  count = local.kubeflow_run_bindings_enabled ? 1 : 0
+
+  yaml_body         = local.kubeflow_gpu_runtime_binding_yaml
+  server_side_apply = true
+
+  depends_on = [
+    kubectl_manifest.kubeflow_gpu_runtime_policy,
+    terraform_data.kubeflow_run_bindings_guard,
+  ]
 }

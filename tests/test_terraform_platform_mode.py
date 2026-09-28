@@ -300,6 +300,44 @@ class TerraformPlatformModeTests(unittest.TestCase):
             r'try\(length\(data\.kubernetes_resource\.kubeflow_cache\[node_name\]\.object\["spec"\]\["nodeAffinity"\]\["required"\]\["nodeSelectorTerms"\]\[0\]\["matchFields"\]\),\s*0\)\s*==\s*0',
         )
 
+    def test_kubeflow_gpu_runtime_policy_is_stage_two_gated(self) -> None:
+        policy = resource(
+            "kubeflow_gpu_runtime_policy", "kubectl_manifest", "kubeflow_integration.tf"
+        )
+        binding = resource(
+            "kubeflow_gpu_runtime_binding", "kubectl_manifest", "kubeflow_integration.tf"
+        )
+        for resource_block in (policy, binding):
+            self.assertRegex(
+                resource_block,
+                r'count\s*=\s*local\.kubeflow_run_bindings_enabled\s*\?\s*1\s*:\s*0',
+            )
+        self.assertRegex(
+            policy,
+            r'depends_on\s*=\s*\[terraform_data\.kubeflow_run_bindings_guard\]',
+        )
+        self.assertIn("kubeflow_gpu_runtime_policy_name", read_terraform("kubeflow_integration.tf"))
+        self.assertIn("kubectl_manifest.kubeflow_gpu_runtime_policy", binding)
+
+    def test_kubeflow_gpu_runtime_policy_matches_only_target_gpu_pod_creates(self) -> None:
+        integration = read_terraform("kubeflow_integration.tf")
+        policy = resource(
+            "kubeflow_gpu_runtime_policy", "kubectl_manifest", "kubeflow_integration.tf"
+        )
+        self.assertRegex(integration, r'apiGroups\s*=\s*\[""\]')
+        self.assertRegex(integration, r'apiVersions\s*=\s*\["v1"\]')
+        self.assertRegex(integration, r'operations\s*=\s*\["CREATE"\]')
+        self.assertRegex(integration, r'resources\s*=\s*\["pods"\]')
+        self.assertIn('request.namespace == ${jsonencode(var.labclip_run_namespace)}', integration)
+        self.assertRegex(policy, r'yaml_body\s*=\s*local\.kubeflow_gpu_runtime_policy_yaml')
+
+    def test_kubeflow_gpu_runtime_policy_preserves_explicit_runtime_classes(self) -> None:
+        integration = read_terraform("kubeflow_integration.tf")
+        self.assertIn('"nvidia.com/gpu" in container.resources.requests', integration)
+        self.assertIn("object.spec.initContainers.exists", integration)
+        self.assertIn("!has(object.spec.runtimeClassName)", integration)
+        self.assertIn('runtimeClassName: "nvidia"', integration)
+
     def test_runbook_defines_profile_namespace_before_using_it(self) -> None:
         readme = (TERRAFORM_ROOT / "README.md").read_text(encoding="utf-8")
         declaration = readme.index("LABCLIP_RUN_NAMESPACE=")

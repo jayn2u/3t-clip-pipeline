@@ -118,6 +118,17 @@ their host data. Before enabling the run bindings, set
 `labclip_run_namespace` to the actual Kubeflow Profile namespace. It must differ
 from `argo`, where MinIO and the source pipeline Secrets remain installed.
 
+Stage two also installs a Kubernetes 1.36 `MutatingAdmissionPolicy` and its
+binding. The API is stable in Kubernetes 1.36, and a policy requires a binding
+before it takes effect ([policy guide](https://v1-36.docs.kubernetes.io/docs/reference/access-authn-authz/mutating-admission-policy/), [v1 API reference](https://v1-36.docs.kubernetes.io/docs/reference/kubernetes-api/admissionregistration/mutating-admission-policy-v1/)). The CEL rules match only
+CREATE requests for core/v1 Pods in the configured run namespace that request
+`nvidia.com/gpu` and omit `spec.runtimeClassName`. They set `runtimeClassName`
+to `nvidia` with an apply configuration; an explicitly selected RuntimeClass is
+left intact. CEL evaluation errors fail admission for matching requests. The
+policy is cluster-scoped, so cluster administrators can change or remove it;
+its binding is enabled only with Kubeflow stage two, and its matching rules
+limit its Pod effect to GPU workloads in the Profile namespace.
+
 Kubeflow stage two reads each PV from the Kubernetes API before creating any
 run claim or copied Secret. The plan-time guard accepts an unclaimed PV in
 `Available`, or a PV in `Bound` whose claim name and namespace match the
@@ -239,7 +250,7 @@ data after teardown; see the dated record under `docs/validation/`.
 | `namespace.tf` | `argo` namespace |
 | `rbac.tf` | LabCLIP runner ServiceAccount and ClusterRole binding |
 | `storage.tf` | Local cache StorageClass, PVs, and PVCs |
-| `kubeflow_integration.tf` | Kubeflow run-namespace binding gate, PV preflight, and scoped run Secrets |
+| `kubeflow_integration.tf` | Kubeflow run-namespace gate, PV preflight, scoped run Secrets, and stage-two GPU runtime admission |
 | `minio.tf` | MinIO deployments/services and pipeline Secrets |
 | `nvidia_device_plugin.tf` | NVIDIA device plugin plus its NFD/GFD components |
 | `argo_workflows.tf` | Argo Helm release and imported LabCLIP WorkflowTemplate |
