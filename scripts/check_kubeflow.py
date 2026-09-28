@@ -3,8 +3,15 @@ from dataclasses import dataclass
 import json
 from pathlib import Path
 import subprocess
+from typing import Sequence
 
-from apply_kubeflow import _read_documents, _validate_terraform_ownership, _verify_approved
+from apply_kubeflow import (
+    TERRAFORM_ROOT,
+    _read_documents,
+    _validate_terraform_ownership,
+    _verify_approved,
+    terraform_owner_inventory,
+)
 from prepare_kubeflow_overlay import RenderApprovalError
 
 
@@ -43,10 +50,22 @@ def _result_text(result: subprocess.CompletedProcess) -> str:
     return "\n".join(part for part in (result.stdout, result.stderr) if part).strip()
 
 
-def check_distribution(manifest: Path, receipt: Path) -> DriftReport:
+def check_distribution(
+    manifest: Path,
+    receipt: Path,
+    *,
+    terraform_dir: Path = TERRAFORM_ROOT,
+    terraform_var_files: Sequence[Path | str] = (),
+    terraform_vars: Sequence[str] = (),
+) -> DriftReport:
     manifest_path = Path(manifest).expanduser().absolute()
     receipt_path = Path(receipt).expanduser().absolute()
-    _validate_terraform_ownership(manifest_path)
+    owner_inventory = terraform_owner_inventory(
+        terraform_dir,
+        variable_files=terraform_var_files,
+        variables=terraform_vars,
+    )
+    _validate_terraform_ownership(manifest_path, owner_inventory)
     command = ["kubectl", "diff", "-f", str(manifest_path)]
     _verify_approved(manifest_path, receipt_path)
     result = _run(command)
@@ -79,23 +98,39 @@ def _workload_ready(desired: dict, current: dict | None) -> bool:
     if current is None:
         return False
     kind = desired.get("kind")
-    desired_replicas = int(desired.get("spec", {}).get("replicas", 1))
-    if desired_replicas == 0:
-        return True
     status = current.get("status", {})
     generation = current.get("metadata", {}).get("generation")
     observed_generation = status.get("observedGeneration")
-    if generation is not None and observed_generation is not None and observed_generation < generation:
+    if (
+        type(generation) is not int
+        or type(observed_generation) is not int
+        or observed_generation < generation
+    ):
         return False
+    desired_replicas = int(desired.get("spec", {}).get("replicas", 1))
+    if desired_replicas == 0:
+        return True
     if kind == "Deployment":
         return int(status.get("availableReplicas", 0)) >= desired_replicas
     return int(status.get("readyReplicas", 0)) >= desired_replicas
 
 
-def check_readiness(manifest: Path, receipt: Path) -> ReadinessReport:
+def check_readiness(
+    manifest: Path,
+    receipt: Path,
+    *,
+    terraform_dir: Path = TERRAFORM_ROOT,
+    terraform_var_files: Sequence[Path | str] = (),
+    terraform_vars: Sequence[str] = (),
+) -> ReadinessReport:
     manifest_path = Path(manifest).expanduser().absolute()
     receipt_path = Path(receipt).expanduser().absolute()
-    _validate_terraform_ownership(manifest_path)
+    owner_inventory = terraform_owner_inventory(
+        terraform_dir,
+        variable_files=terraform_var_files,
+        variables=terraform_vars,
+    )
+    _validate_terraform_ownership(manifest_path, owner_inventory)
     _verify_approved(manifest_path, receipt_path)
     command = [
         "kubectl",
@@ -140,15 +175,30 @@ def main() -> None:
     parser.add_argument("--receipt", type=Path, default=GENERATED_ROOT / "receipt.json")
     parser.add_argument("--drift-only", action="store_true")
     parser.add_argument("--readiness-only", action="store_true")
+    parser.add_argument("--terraform-dir", type=Path, default=TERRAFORM_ROOT)
+    parser.add_argument("--terraform-var-file", action="append", type=Path, default=[])
+    parser.add_argument("--terraform-var", action="append", default=[])
     args = parser.parse_args()
     if args.drift_only and args.readiness_only:
         parser.error("--drift-only and --readiness-only cannot be combined.")
     try:
         if not args.readiness_only:
-            report = check_distribution(args.manifest, args.receipt)
+            report = check_distribution(
+                args.manifest,
+                args.receipt,
+                terraform_dir=args.terraform_dir,
+                terraform_var_files=args.terraform_var_file,
+                terraform_vars=args.terraform_var,
+            )
             print(report.summary)
         if not args.drift_only:
-            report = check_readiness(args.manifest, args.receipt)
+            report = check_readiness(
+                args.manifest,
+                args.receipt,
+                terraform_dir=args.terraform_dir,
+                terraform_var_files=args.terraform_var_file,
+                terraform_vars=args.terraform_var,
+            )
             if report.ready:
                 print(f"Kubeflow workloads and claims are ready ({report.checked_objects} checked).")
             else:

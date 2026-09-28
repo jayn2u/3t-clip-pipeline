@@ -88,15 +88,19 @@ python3 scripts/render_kubeflow.py --approve-digest <reviewed-sha256>
 The rendered manifest, receipt, inventory, and approval must remain mode 0600.
 `apply_kubeflow.py` verifies the receipt, explicit digest approval, inventory,
 Terraform ownership boundary, and private-exposure checks immediately before
-each apply. It applies CRDs first, waits for them to become Established, then
-applies the full manifest. It retries only recognized missing-CRD or
-temporarily unavailable dependency errors, with no more than six apply
-attempts total including the CRD stage. Field conflicts stop immediately and
-are never forced.
+each apply. It applies CRDs first, waits only for those CRDs named in the
+approved manifest to become Established, then applies the full manifest. It
+retries only recognized missing-CRD or temporarily unavailable dependency
+errors, with no more than six apply attempts total including the CRD stage.
+Field conflicts stop immediately and are never forced.
 
 ```bash
 export KUBECONFIG="$PWD/terraform/generated/kubeconfig"
-python3 scripts/apply_kubeflow.py
+python3 scripts/apply_kubeflow.py \
+  --terraform-var=platform_mode=kubeflow \
+  --terraform-var=enable_kubeflow_run_bindings=false \
+  --terraform-var=labclip_run_namespace=kubeflow-user-labclip-example-com \
+  --terraform-var=enable_tailscale=true
 ```
 
 After applying Kubeflow, confirm that the generated Profile created the
@@ -115,12 +119,28 @@ email differs from the default. The Terraform guard checks the PV phase, claim
 reference, local path, and node affinity before creating LabCLIP's cache claims
 and copied run credentials.
 
+The apply and drift scripts resolve Terraform-owned Kubernetes names by running
+`terraform console` against the current configuration. Terraform's automatic
+`terraform.tfvars` and `*.auto.tfvars` inputs are loaded normally. If a plan or
+apply used an additional `-var-file`, pass that same file to both scripts with
+`--terraform-var-file terraform/private-values.tfvars`. If it used non-sensitive
+CLI `-var` overrides, repeat each one as `--terraform-var key=value`. This is
+important for the configured Argo and Kubeflow run namespaces and cache names;
+the scripts fail closed if Terraform cannot resolve a complete owner inventory.
+Sensitive values belong only in private variable files, never `--terraform-var`
+or a command-line argument.
+
 ## UI access and verification
 
 Run the read-only drift and readiness checks after both Terraform stages:
 
 ```bash
-python3 scripts/check_kubeflow.py
+python3 scripts/check_kubeflow.py \
+  --terraform-var=platform_mode=kubeflow \
+  --terraform-var=enable_kubeflow_run_bindings=true \
+  --terraform-var=confirm_kubeflow_cache_pv_rebind=true \
+  --terraform-var=labclip_run_namespace=kubeflow-user-labclip-example-com \
+  --terraform-var=enable_tailscale=true
 ```
 
 The drift report invokes only `kubectl diff`; it prints changed-object counts
@@ -155,8 +175,18 @@ read-only drift and readiness report:
 
 ```bash
 python3 scripts/render_kubeflow.py
-python3 scripts/apply_kubeflow.py
-python3 scripts/check_kubeflow.py
+python3 scripts/apply_kubeflow.py \
+  --terraform-var=platform_mode=kubeflow \
+  --terraform-var=enable_kubeflow_run_bindings=true \
+  --terraform-var=confirm_kubeflow_cache_pv_rebind=true \
+  --terraform-var=labclip_run_namespace=kubeflow-user-labclip-example-com \
+  --terraform-var=enable_tailscale=true
+python3 scripts/check_kubeflow.py \
+  --terraform-var=platform_mode=kubeflow \
+  --terraform-var=enable_kubeflow_run_bindings=true \
+  --terraform-var=confirm_kubeflow_cache_pv_rebind=true \
+  --terraform-var=labclip_run_namespace=kubeflow-user-labclip-example-com \
+  --terraform-var=enable_tailscale=true
 ```
 
 If the manifest digest changes, stop. Review the new rendered manifest and
