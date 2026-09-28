@@ -1,5 +1,6 @@
 import argparse
 from dataclasses import dataclass
+import hashlib
 import json
 from pathlib import Path
 import re
@@ -143,18 +144,25 @@ def _render_paths(receipt: Path) -> tuple[Path, Path]:
     return Path(receipt).with_name("inventory.json"), Path(receipt).with_name("approval.json")
 
 
-def _read_documents(manifest: Path) -> list[dict]:
-    documents = [item for item in yaml.safe_load_all(Path(manifest).read_text(encoding="utf-8")) if item]
+def _parse_documents(manifest_bytes: bytes) -> list[dict]:
+    rendered = manifest_bytes.decode("utf-8")
+    documents = [item for item in yaml.safe_load_all(rendered) if item]
     if not documents:
         raise ValueError("The Kubeflow manifest contains no Kubernetes objects.")
     return documents
 
 
+def _read_documents(manifest: Path) -> list[dict]:
+    return _parse_documents(Path(manifest).read_bytes())
+
+
 def _validate_terraform_ownership(
     manifest: Path,
     owner_inventory: TerraformOwnerInventory,
+    *,
+    documents: list[dict] | None = None,
 ) -> None:
-    documents = _read_documents(manifest)
+    documents = _read_documents(manifest) if documents is None else documents
     reserved_namespaces = {
         owner_inventory.argo_namespace,
         "nvidia-device-plugin",
@@ -262,16 +270,31 @@ def _apply_once(
     apply_path: Path,
     *,
     server_side: bool,
+    expected_manifest_sha256: str,
 ) -> subprocess.CompletedProcess:
     command = ["kubectl", "apply"]
     if server_side:
         command.append("--server-side")
     command.extend(["-f", str(apply_path)])
-    _verify_approved(manifest, receipt)
+    approval = _verify_approved(manifest, receipt)
+    if approval.get("sha256") != expected_manifest_sha256:
+        raise RenderApprovalError(
+            "The approved manifest changed after parsing; apply is blocked."
+        )
+    current_sha256 = hashlib.sha256(Path(manifest).read_bytes()).hexdigest()
+    if current_sha256 != expected_manifest_sha256:
+        raise RenderApprovalError(
+            "The approved manifest changed after parsing; apply is blocked."
+        )
     return _run(command)
 
 
-def _apply_crds(manifest: Path, receipt: Path, documents: list[dict]) -> bool:
+def _apply_crds(
+    manifest: Path,
+    receipt: Path,
+    documents: list[dict],
+    expected_manifest_sha256: str,
+) -> bool:
     custom_resources = [item for item in documents if item.get("kind") == "CustomResourceDefinition"]
     if not custom_resources:
         return False
@@ -292,7 +315,13 @@ def _apply_crds(manifest: Path, receipt: Path, documents: list[dict]) -> bool:
             encoding="utf-8",
         )
         crd_manifest.chmod(0o600)
-        result = _apply_once(manifest, receipt, crd_manifest, server_side=True)
+        result = _apply_once(
+            manifest,
+            receipt,
+            crd_manifest,
+            server_side=True,
+            expected_manifest_sha256=expected_manifest_sha256,
+        )
     if result.returncode != 0:
         raise KubeflowApplyError(
             f"Kubeflow CRD server-side apply failed with exit code {result.returncode}; command output was withheld."
@@ -309,6 +338,7 @@ def _apply_distribution_body(
     *,
     max_attempts: int,
     first_attempt: int,
+    expected_manifest_sha256: str,
 ) -> None:
     with tempfile.TemporaryDirectory(prefix="kubeflow-body-") as temporary:
         directory = Path(temporary)
@@ -320,7 +350,13 @@ def _apply_distribution_body(
         )
         body_manifest.chmod(0o600)
         for attempt in range(first_attempt, max_attempts + 1):
-            result = _apply_once(manifest, receipt, body_manifest, server_side=False)
+            result = _apply_once(
+                manifest,
+                receipt,
+                body_manifest,
+                server_side=False,
+                expected_manifest_sha256=expected_manifest_sha256,
+            )
             if result.returncode == 0:
                 return
             message = _result_text(result)
@@ -355,13 +391,24 @@ def apply_distribution(
         raise ValueError(f"max_attempts must be between 1 and {MAX_APPLY_ATTEMPTS}.")
     manifest_path = Path(manifest).expanduser().absolute()
     receipt_path = Path(receipt).expanduser().absolute()
+    initial_approval = _verify_approved(manifest_path, receipt_path)
+    manifest_bytes = manifest_path.read_bytes()
+    manifest_sha256 = hashlib.sha256(manifest_bytes).hexdigest()
+    if initial_approval.get("sha256") != manifest_sha256:
+        raise RenderApprovalError(
+            "The approved manifest changed before parsing; apply is blocked."
+        )
+    documents = _parse_documents(manifest_bytes)
     owner_inventory = terraform_owner_inventory(
         terraform_dir,
         variable_files=terraform_var_files,
         variables=terraform_vars,
     )
-    _validate_terraform_ownership(manifest_path, owner_inventory)
-    documents = _read_documents(manifest_path)
+    _validate_terraform_ownership(
+        manifest_path,
+        owner_inventory,
+        documents=documents,
+    )
     crd_names = tuple(
         sorted(
             {
@@ -376,7 +423,12 @@ def apply_distribution(
     has_crds = any(item.get("kind") == "CustomResourceDefinition" for item in documents)
     if has_crds and max_attempts < 2:
         raise ValueError("max_attempts must leave one attempt for the complete Kubeflow manifest.")
-    crds_applied = _apply_crds(manifest_path, receipt_path, documents)
+    crds_applied = _apply_crds(
+        manifest_path,
+        receipt_path,
+        documents,
+        manifest_sha256,
+    )
     distribution_documents = [
         item for item in documents if item.get("kind") != "CustomResourceDefinition"
     ]
@@ -390,6 +442,7 @@ def apply_distribution(
         crd_names,
         max_attempts=max_attempts,
         first_attempt=first_attempt,
+        expected_manifest_sha256=manifest_sha256,
     )
 
 

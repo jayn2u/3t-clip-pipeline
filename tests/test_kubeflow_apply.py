@@ -15,7 +15,7 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS_ROOT = REPOSITORY_ROOT / "scripts"
 sys.path.insert(0, str(SCRIPTS_ROOT))
 
-from prepare_kubeflow_overlay import approve_render
+from prepare_kubeflow_overlay import RenderApprovalError, approve_render
 
 
 def default_terraform_owners():
@@ -347,14 +347,19 @@ class KubeflowApplyTests(unittest.TestCase):
 
     def test_apply_rejects_terraform_owned_objects(self) -> None:
         self.require_implementation()
-        self.manifest.write_text(
-            self.manifest.read_text(encoding="utf-8")
-            + "---\napiVersion: v1\nkind: Namespace\nmetadata:\n  name: argo\n",
-            encoding="utf-8",
+        namespace = {
+            "apiVersion": "v1",
+            "kind": "Namespace",
+            "metadata": {"name": "argo"},
+        }
+        manifest, receipt, inventory_path, approval, digest = make_render(
+            self.root,
+            extra_documents=(namespace,),
         )
+        approve_render(digest, manifest, receipt, inventory_path, approval)
         with mock.patch.object(self.tools.subprocess, "run") as run:
             with self.assertRaises(self.tools.KubeflowApplyError):
-                self.tools.apply_distribution(self.manifest, self.receipt)
+                self.tools.apply_distribution(manifest, receipt)
         run.assert_not_called()
 
     def test_crds_use_server_side_apply_and_body_uses_client_side_apply(self) -> None:
@@ -419,6 +424,64 @@ class KubeflowApplyTests(unittest.TestCase):
         self.assertFalse(
             any(item.get("kind") == "CustomResourceDefinition" for item in applied_manifests[1][1])
         )
+
+    def test_apply_rejects_a_new_approved_render_after_manifest_snapshot(self) -> None:
+        self.require_implementation()
+        crd = {
+            "apiVersion": "apiextensions.k8s.io/v1",
+            "kind": "CustomResourceDefinition",
+            "metadata": {"name": "profiles.kubeflow.org"},
+            "spec": {},
+        }
+        manifest, receipt, inventory, approval, digest = make_render(
+            self.root,
+            extra_documents=(crd,),
+        )
+        approve_render(digest, manifest, receipt, inventory, approval)
+        replacement_root = self.root / "replacement"
+        replacement_root.mkdir(mode=0o700)
+        replacement_manifest, replacement_receipt, replacement_inventory, replacement_approval, replacement_digest = make_render(
+            replacement_root,
+            extra_documents=(
+                crd,
+                {
+                    "apiVersion": "v1",
+                    "kind": "ConfigMap",
+                    "metadata": {"name": "replacement", "namespace": "kubeflow"},
+                },
+            ),
+        )
+        approve_render(
+            replacement_digest,
+            replacement_manifest,
+            replacement_receipt,
+            replacement_inventory,
+            replacement_approval,
+        )
+        swapped = False
+        applied_commands = []
+
+        def apply_and_replace(command, *, timeout=180):
+            nonlocal swapped
+            if command[1] == "apply":
+                applied_commands.append(command)
+                if "--server-side" in command and not swapped:
+                    for source, destination in (
+                        (replacement_manifest, manifest),
+                        (replacement_receipt, receipt),
+                        (replacement_inventory, inventory),
+                        (replacement_approval, approval),
+                    ):
+                        destination.write_bytes(source.read_bytes())
+                        destination.chmod(0o600)
+                    swapped = True
+            return mock.Mock(returncode=0, stdout="", stderr="")
+
+        with mock.patch.object(self.tools, "_run", side_effect=apply_and_replace):
+            with self.assertRaises(RenderApprovalError):
+                self.tools.apply_distribution(manifest, receipt)
+        self.assertTrue(swapped)
+        self.assertEqual(1, len(applied_commands))
 
 
 class KubeflowDriftTests(unittest.TestCase):
