@@ -521,6 +521,23 @@ class TerraformOwnerInventoryTests(unittest.TestCase):
         self.assertEqual({"cache-a", "cache-b"}, owners.cache_claims)
         self.assertEqual({"minio-a", "minio-b"}, owners.minio_roles)
 
+    def test_console_expression_is_submitted_as_one_line(self) -> None:
+        self.assertTrue(hasattr(self.tools, "terraform_owner_inventory"))
+        configured = {
+            "argo_namespace": "argo",
+            "labclip_run_namespace": "kubeflow-user-labclip-example-com",
+            "enable_tailscale": True,
+            "nodes": {"gpu-a": {"minio_role": "minio-a", "cache_claim": "cache-a"}},
+        }
+        result = mock.Mock(returncode=0, stdout=json.dumps(json.dumps(configured)), stderr="")
+        with mock.patch.object(self.tools.subprocess, "run", return_value=result) as run:
+            self.tools.terraform_owner_inventory(terraform_dir=REPOSITORY_ROOT / "terraform")
+        expression = run.call_args.kwargs["input"]
+        self.assertEqual(
+            "jsonencode({ argo_namespace = var.argo_namespace, labclip_run_namespace = var.labclip_run_namespace, enable_tailscale = var.enable_tailscale, nodes = { for node_name, node in var.nodes : node_name => { minio_role = node.minio_role, cache_claim = node.cache_claim } } })\n",
+            expression,
+        )
+
     def test_inventory_fails_closed_without_terraform_inputs(self) -> None:
         self.assertTrue(hasattr(self.tools, "terraform_owner_inventory"))
         result = mock.Mock(returncode=1, stdout="", stderr="sensitive diagnostic text")

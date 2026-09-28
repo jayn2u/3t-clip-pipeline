@@ -77,10 +77,11 @@ def terraform_owner_inventory(
                 "Sensitive Terraform variables must be read from a private variable file."
             )
         command.append(f"-var={variable}")
+    console_expression = " ".join(TERRAFORM_CONSOLE_EXPRESSION.split())
     try:
         result = subprocess.run(
             command,
-            input=TERRAFORM_CONSOLE_EXPRESSION,
+            input=f"{console_expression}\n",
             check=False,
             capture_output=True,
             text=True,
