@@ -256,8 +256,17 @@ def _wait_for_crds(crd_names: Sequence[str]) -> None:
         raise KubeflowApplyError(message or "Kubeflow CRDs did not become Established.")
 
 
-def _apply_once(manifest: Path, receipt: Path, apply_path: Path) -> subprocess.CompletedProcess:
-    command = ["kubectl", "apply", "--server-side", "-f", str(apply_path)]
+def _apply_once(
+    manifest: Path,
+    receipt: Path,
+    apply_path: Path,
+    *,
+    server_side: bool,
+) -> subprocess.CompletedProcess:
+    command = ["kubectl", "apply"]
+    if server_side:
+        command.append("--server-side")
+    command.extend(["-f", str(apply_path)])
     _verify_approved(manifest, receipt)
     return _run(command)
 
@@ -283,13 +292,54 @@ def _apply_crds(manifest: Path, receipt: Path, documents: list[dict]) -> bool:
             encoding="utf-8",
         )
         crd_manifest.chmod(0o600)
-        result = _apply_once(manifest, receipt, crd_manifest)
+        result = _apply_once(manifest, receipt, crd_manifest, server_side=True)
     if result.returncode != 0:
         raise KubeflowApplyError(
             f"Kubeflow CRD server-side apply failed with exit code {result.returncode}; command output was withheld."
         )
     _wait_for_crds(crd_names)
     return True
+
+
+def _apply_distribution_body(
+    manifest: Path,
+    receipt: Path,
+    documents: list[dict],
+    crd_names: Sequence[str],
+    *,
+    max_attempts: int,
+    first_attempt: int,
+) -> None:
+    with tempfile.TemporaryDirectory(prefix="kubeflow-body-") as temporary:
+        directory = Path(temporary)
+        directory.chmod(0o700)
+        body_manifest = directory / "distribution.yaml"
+        body_manifest.write_text(
+            "---\n".join(yaml.safe_dump(item, sort_keys=False) for item in documents),
+            encoding="utf-8",
+        )
+        body_manifest.chmod(0o600)
+        for attempt in range(first_attempt, max_attempts + 1):
+            result = _apply_once(manifest, receipt, body_manifest, server_side=False)
+            if result.returncode == 0:
+                return
+            message = _result_text(result)
+            if "conflict" in message.lower():
+                raise KubeflowApplyError(
+                    f"Kubeflow client-side apply reported a field conflict with exit code {result.returncode}; command output was withheld."
+                )
+            if not _is_retryable_error(message):
+                raise KubeflowApplyError(
+                    f"Kubeflow client-side apply failed with exit code {result.returncode}; command output was withheld."
+                )
+            if attempt == max_attempts:
+                raise KubeflowApplyError(
+                    f"Kubeflow client-side apply still reports an unavailable dependency after the bounded retry window of at most {max_attempts} apply attempts; last exit code {result.returncode}, command output was withheld."
+                )
+            if _is_missing_crd_error(message):
+                _wait_for_crds(crd_names)
+            else:
+                time.sleep(min(2 ** (attempt - first_attempt), 4))
 
 
 def apply_distribution(
@@ -327,28 +377,20 @@ def apply_distribution(
     if has_crds and max_attempts < 2:
         raise ValueError("max_attempts must leave one attempt for the complete Kubeflow manifest.")
     crds_applied = _apply_crds(manifest_path, receipt_path, documents)
+    distribution_documents = [
+        item for item in documents if item.get("kind") != "CustomResourceDefinition"
+    ]
+    if not distribution_documents:
+        return
     first_attempt = 2 if crds_applied else 1
-    for attempt in range(first_attempt, max_attempts + 1):
-        result = _apply_once(manifest_path, receipt_path, manifest_path)
-        if result.returncode == 0:
-            return
-        message = _result_text(result)
-        if "conflict" in message.lower():
-            raise KubeflowApplyError(
-                f"Kubeflow server-side apply reported a field conflict with exit code {result.returncode}; command output was withheld."
-            )
-        if not _is_retryable_error(message):
-            raise KubeflowApplyError(
-                f"Kubeflow server-side apply failed with exit code {result.returncode}; command output was withheld."
-            )
-        if attempt == max_attempts:
-            raise KubeflowApplyError(
-                f"Kubeflow server-side apply still reports an unavailable dependency after the bounded retry window of at most {max_attempts} apply attempts; last exit code {result.returncode}, command output was withheld."
-            )
-        if _is_missing_crd_error(message):
-            _wait_for_crds(crd_names)
-        else:
-            time.sleep(min(2 ** (attempt - first_attempt), 4))
+    _apply_distribution_body(
+        manifest_path,
+        receipt_path,
+        distribution_documents,
+        crd_names,
+        max_attempts=max_attempts,
+        first_attempt=first_attempt,
+    )
 
 
 def main() -> None:

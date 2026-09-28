@@ -245,8 +245,8 @@ class KubeflowApplyTests(unittest.TestCase):
                 self.tools.apply_distribution(self.manifest, self.receipt)
         self.assertEqual(1, run.call_count)
         command = run.call_args.args[0]
-        self.assertEqual(["kubectl", "apply", "--server-side", "-f"], command[:4])
-        self.assertIn("--server-side", command)
+        self.assertEqual(["kubectl", "apply", "-f"], command[:3])
+        self.assertNotIn("--server-side", command)
         self.assertNotIn("--force-conflicts", command)
         self.assertIn("exit code 1", str(raised.exception))
         self.assertNotIn("secret-data-sentinel", str(raised.exception))
@@ -312,12 +312,34 @@ class KubeflowApplyTests(unittest.TestCase):
             responses.append(missing_crd)
             if attempt < 4:
                 responses.append(established)
-        with mock.patch.object(self.tools.subprocess, "run", side_effect=responses) as run:
+        response_iter = iter(responses)
+        applied_manifests = []
+
+        def apply_command(command, *, timeout=180):
+            result = next(response_iter)
+            if command[1] == "apply":
+                apply_path = Path(command[-1])
+                applied_manifests.append(
+                    (
+                        command,
+                        [item.get("kind") for item in self.tools._read_documents(apply_path)],
+                        str(apply_path),
+                    )
+                )
+            return result
+
+        with mock.patch.object(self.tools, "_run", side_effect=apply_command) as run:
             with self.assertRaises(self.tools.KubeflowApplyError) as raised:
                 self.tools.apply_distribution(manifest, receipt, max_attempts=6)
-        apply_count = sum(call.args[0][1] == "apply" for call in run.call_args_list)
-        self.assertEqual(6, apply_count)
+        self.assertEqual(6, sum(call.args[0][1] == "apply" for call in run.call_args_list))
         self.assertIn("exit code 1", str(raised.exception))
+        self.assertIn("--server-side", applied_manifests[0][0])
+        self.assertNotIn("--server-side", applied_manifests[1][0])
+        self.assertNotIn("--server-side", applied_manifests[2][0])
+        self.assertTrue(all(kind == "CustomResourceDefinition" for kind in applied_manifests[0][1]))
+        self.assertFalse(any(kind == "CustomResourceDefinition" for kind in applied_manifests[1][1]))
+        self.assertEqual(applied_manifests[1][2], applied_manifests[2][2])
+        self.assertNotEqual(str(manifest), applied_manifests[1][2])
         with mock.patch.object(self.tools.subprocess, "run") as run:
             with self.assertRaises(ValueError):
                 self.tools.apply_distribution(self.manifest, self.receipt, max_attempts=7)
@@ -335,7 +357,7 @@ class KubeflowApplyTests(unittest.TestCase):
                 self.tools.apply_distribution(self.manifest, self.receipt)
         run.assert_not_called()
 
-    def test_apply_establishes_crds_before_the_distribution(self) -> None:
+    def test_crds_use_server_side_apply_and_body_uses_client_side_apply(self) -> None:
         self.require_implementation()
         crd = {
             "apiVersion": "apiextensions.k8s.io/v1",
@@ -359,7 +381,23 @@ class KubeflowApplyTests(unittest.TestCase):
             mock.Mock(returncode=0, stdout="crd established", stderr=""),
             mock.Mock(returncode=0, stdout="distribution applied", stderr=""),
         ]
-        with mock.patch.object(self.tools.subprocess, "run", side_effect=responses) as run:
+        response_iter = iter(responses)
+        applied_manifests = []
+
+        def apply_command(command, *, timeout=180):
+            result = next(response_iter)
+            if command[1] == "apply":
+                apply_path = Path(command[-1])
+                applied_manifests.append(
+                    (
+                        command,
+                        self.tools._read_documents(apply_path),
+                        apply_path.stat().st_mode & 0o777,
+                    )
+                )
+            return result
+
+        with mock.patch.object(self.tools, "_run", side_effect=apply_command) as run:
             self.tools.apply_distribution(manifest, receipt)
         commands = [call.args[0] for call in run.call_args_list]
         self.assertEqual("apply", commands[0][1])
@@ -369,10 +407,18 @@ class KubeflowApplyTests(unittest.TestCase):
         self.assertIn("crd/profiles.kubeflow.org", commands[1])
         self.assertIn("crd/experiments.kubeflow.org", commands[1])
         self.assertNotIn("--all", commands[1])
-        self.assertIn("--server-side", commands[2])
+        self.assertNotIn("--server-side", commands[2])
         self.assertNotIn("--force-conflicts", commands[0])
         self.assertNotIn("--force-conflicts", commands[2])
-        self.assertEqual(str(manifest), commands[2][-1])
+        self.assertNotEqual(str(manifest), commands[2][-1])
+        self.assertEqual(0o600, applied_manifests[0][2])
+        self.assertEqual(0o600, applied_manifests[1][2])
+        self.assertTrue(
+            all(item.get("kind") == "CustomResourceDefinition" for item in applied_manifests[0][1])
+        )
+        self.assertFalse(
+            any(item.get("kind") == "CustomResourceDefinition" for item in applied_manifests[1][1])
+        )
 
 
 class KubeflowDriftTests(unittest.TestCase):
