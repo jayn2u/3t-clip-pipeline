@@ -44,6 +44,12 @@ variable "enable_kubeflow_run_bindings" {
   default     = false
 }
 
+variable "confirm_kubeflow_cache_pv_rebind" {
+  description = "Confirm that retained cache PVs have no stale claimRef and are safe to bind in the Kubeflow run namespace."
+  type        = bool
+  default     = false
+}
+
 variable "argo_workflows_chart_version" {
   description = "Pinned argo-workflows Helm chart version."
   type        = string

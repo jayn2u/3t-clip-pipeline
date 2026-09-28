@@ -83,4 +83,6 @@ resource "kubernetes_persistent_volume_claim" "cache" {
       }
     }
   }
+
+  depends_on = [terraform_data.kubeflow_run_bindings_guard]
 }

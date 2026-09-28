@@ -47,6 +47,13 @@ def resource(name: str, kind: str, file_name: str) -> str:
     )
 
 
+def variable(name: str) -> str:
+    return block(
+        read_terraform("variables.tf"),
+        rf'variable\s+"{re.escape(name)}"\s*\{{',
+    )
+
+
 class TerraformPlatformModeTests(unittest.TestCase):
     def test_default_mode_keeps_argo(self) -> None:
         platform_mode = block(
@@ -164,6 +171,72 @@ class TerraformPlatformModeTests(unittest.TestCase):
         outputs = read_terraform("outputs.tf")
         self.assertRegex(outputs, r'output\s+"platform_mode"')
         self.assertRegex(outputs, r'output\s+"labclip_run_namespace"')
+
+    def test_kubeflow_run_bindings_require_a_distinct_namespace(self) -> None:
+        self.assertRegex(variable("labclip_run_namespace"), r'default\s*=\s*"argo"')
+        guard = resource(
+            "kubeflow_run_bindings_guard", "terraform_data", "kubeflow_integration.tf"
+        )
+        self.assertRegex(
+            guard,
+            r'count\s*=\s*local\.kubeflow_run_bindings_enabled\s*\?\s*1\s*:\s*0',
+        )
+        self.assertRegex(
+            guard,
+            r'condition\s*=\s*var\.labclip_run_namespace\s*!=\s*var\.argo_namespace',
+        )
+        self.assertRegex(guard, r'error_message\s*=.*(?:distinct|differ)')
+
+    def test_kubeflow_claim_creation_requires_explicit_pv_rebind_confirmation(self) -> None:
+        confirmation = variable("confirm_kubeflow_cache_pv_rebind")
+        self.assertRegex(confirmation, r'type\s*=\s*bool')
+        self.assertRegex(confirmation, r'default\s*=\s*false')
+        guard = resource(
+            "kubeflow_run_bindings_guard", "terraform_data", "kubeflow_integration.tf"
+        )
+        self.assertRegex(
+            guard,
+            r'condition\s*=\s*var\.confirm_kubeflow_cache_pv_rebind',
+        )
+        self.assertRegex(guard, r'error_message\s*=.*claimRef')
+        integration = read_terraform("kubeflow_integration.tf")
+        pv_data_source = block(
+            integration,
+            r'data\s+"kubernetes_resource"\s+"kubeflow_cache"\s*\{',
+        )
+        self.assertRegex(
+            pv_data_source,
+            r'for_each\s*=\s*local\.kubeflow_run_bindings_enabled\s*\?\s*var\.nodes\s*:\s*\{\}',
+        )
+        self.assertRegex(pv_data_source, r'name\s*=\s*each\.value\.cache_claim')
+        self.assertIn("data.kubernetes_resource.kubeflow_cache", guard)
+        pv_preflight = block(
+            guard,
+            r'precondition\s*\{\s*condition\s*=\s*alltrue',
+        )
+        self.assertIn('["status"]["phase"]', pv_preflight)
+        self.assertIn('["spec"]["claimRef"]["uid"]', pv_preflight)
+        self.assertIn('["spec"]["local"]["path"]', guard)
+        self.assertIn('["spec"]["nodeAffinity"]', guard)
+        self.assertIn('== "Available"', pv_preflight)
+        self.assertIn('== "Bound"', pv_preflight)
+        self.assertIn('["spec"]["claimRef"]["namespace"] == var.labclip_run_namespace', pv_preflight)
+        self.assertIn('["spec"]["claimRef"]["name"] == node.cache_claim', pv_preflight)
+        self.assertNotIn('== "Released"', pv_preflight)
+        self.assertRegex(
+            pv_preflight,
+            r'try\s*\(\s*length\(data\.kubernetes_resource\.kubeflow_cache\[node_name\]\.object\["spec"\]\["claimRef"\]\)\s*,\s*0\s*\)\s*==\s*0',
+        )
+        self.assertRegex(
+            pv_preflight,
+            r'try\s*\(\s*length\(data\.kubernetes_resource\.kubeflow_cache\[node_name\]\.object\["spec"\]\["claimRef"\]\["uid"\]\)\s*,\s*0\s*\)\s*>\s*0',
+        )
+        self.assertIn("labclip_run_namespace", guard)
+        self.assertIn("cache_claim", guard)
+        self.assertRegex(
+            resource("cache", "kubernetes_persistent_volume_claim", "storage.tf"),
+            r'depends_on\s*=\s*\[terraform_data\.kubeflow_run_bindings_guard\]',
+        )
 
 
 if __name__ == "__main__":
