@@ -248,6 +248,7 @@ class KubeflowApplyTests(unittest.TestCase):
         self.assertEqual(["kubectl", "apply", "--server-side", "-f"], command[:4])
         self.assertIn("--server-side", command)
         self.assertNotIn("--force-conflicts", command)
+        self.assertIn("exit code 1", str(raised.exception))
         self.assertNotIn("secret-data-sentinel", str(raised.exception))
 
     def test_crd_apply_withholds_raw_error_output(self) -> None:
@@ -267,7 +268,22 @@ class KubeflowApplyTests(unittest.TestCase):
         with mock.patch.object(self.tools.subprocess, "run", return_value=result):
             with self.assertRaises(self.tools.KubeflowApplyError) as raised:
                 self.tools.apply_distribution(manifest, receipt)
+        self.assertIn("exit code 1", str(raised.exception))
         self.assertNotIn("secret-data-sentinel", str(raised.exception))
+
+    def test_nonretryable_apply_error_keeps_exit_code_without_raw_output(self) -> None:
+        self.require_implementation()
+        result = mock.Mock(
+            returncode=17,
+            stdout="secret-data-sentinel",
+            stderr="admission rejected object",
+        )
+        with mock.patch.object(self.tools.subprocess, "run", return_value=result):
+            with self.assertRaises(self.tools.KubeflowApplyError) as raised:
+                self.tools.apply_distribution(self.manifest, self.receipt)
+        self.assertIn("exit code 17", str(raised.exception))
+        self.assertNotIn("secret-data-sentinel", str(raised.exception))
+        self.assertNotIn("admission rejected object", str(raised.exception))
 
     def test_apply_never_exceeds_six_attempts(self) -> None:
         self.require_implementation()
@@ -297,10 +313,11 @@ class KubeflowApplyTests(unittest.TestCase):
             if attempt < 4:
                 responses.append(established)
         with mock.patch.object(self.tools.subprocess, "run", side_effect=responses) as run:
-            with self.assertRaises(self.tools.KubeflowApplyError):
+            with self.assertRaises(self.tools.KubeflowApplyError) as raised:
                 self.tools.apply_distribution(manifest, receipt, max_attempts=6)
         apply_count = sum(call.args[0][1] == "apply" for call in run.call_args_list)
         self.assertEqual(6, apply_count)
+        self.assertIn("exit code 1", str(raised.exception))
         with mock.patch.object(self.tools.subprocess, "run") as run:
             with self.assertRaises(ValueError):
                 self.tools.apply_distribution(self.manifest, self.receipt, max_attempts=7)

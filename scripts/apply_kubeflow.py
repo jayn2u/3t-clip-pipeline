@@ -286,7 +286,7 @@ def _apply_crds(manifest: Path, receipt: Path, documents: list[dict]) -> bool:
         result = _apply_once(manifest, receipt, crd_manifest)
     if result.returncode != 0:
         raise KubeflowApplyError(
-            "Kubeflow CRD server-side apply failed; command output was withheld."
+            f"Kubeflow CRD server-side apply failed with exit code {result.returncode}; command output was withheld."
         )
     _wait_for_crds(crd_names)
     return True
@@ -335,15 +335,15 @@ def apply_distribution(
         message = _result_text(result)
         if "conflict" in message.lower():
             raise KubeflowApplyError(
-                "Kubeflow server-side apply reported a field conflict; command output was withheld."
+                f"Kubeflow server-side apply reported a field conflict with exit code {result.returncode}; command output was withheld."
             )
         if not _is_retryable_error(message):
             raise KubeflowApplyError(
-                "Kubeflow server-side apply failed; command output was withheld."
+                f"Kubeflow server-side apply failed with exit code {result.returncode}; command output was withheld."
             )
         if attempt == max_attempts:
             raise KubeflowApplyError(
-                f"Kubeflow server-side apply still reports an unavailable dependency after the bounded retry window of at most {max_attempts} apply attempts; command output was withheld."
+                f"Kubeflow server-side apply still reports an unavailable dependency after the bounded retry window of at most {max_attempts} apply attempts; last exit code {result.returncode}, command output was withheld."
             )
         if _is_missing_crd_error(message):
             _wait_for_crds(crd_names)
