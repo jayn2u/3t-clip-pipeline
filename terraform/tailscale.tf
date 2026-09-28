@@ -18,6 +18,16 @@ resource "kubernetes_secret" "tailscale_oauth" {
     client_id     = var.tailscale_oauth_client_id
     client_secret = var.tailscale_oauth_client_secret
   }
+
+  lifecycle {
+    precondition {
+      condition = nonsensitive(
+        trimspace(var.tailscale_oauth_client_id) != "" &&
+        trimspace(var.tailscale_oauth_client_secret) != ""
+      )
+      error_message = "Set both Tailscale OAuth values through the private Terraform inputs before enabling the operator."
+    }
+  }
 }
 
 resource "helm_release" "tailscale_operator" {

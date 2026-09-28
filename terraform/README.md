@@ -64,7 +64,30 @@ If `lab_clip` is not a sibling checkout, set
 Terraform root.
 
 Tailscale is disabled by default and needs no OAuth credentials unless
-`enable_tailscale = true` is selected explicitly.
+`enable_tailscale = true` is selected explicitly. When enabled, the plan checks
+that both OAuth values are non-empty before creating the Operator Secret. Keep
+the values in the ignored private Terraform inputs; do not pass them as
+`-var` arguments.
+
+For the Kubeflow PoC, Terraform owns the optional Operator Helm release and its
+OAuth Secret. The Kustomize overlay owns `Ingress/istio-system/kubeflow-tailnet`.
+The Istio gateway remains a `ClusterIP` Service, and the Ingress forwards only
+to its HTTP port 80 through Tailscale HTTPS. No Terraform resource manages the
+Kubeflow Ingress.
+
+Before setting `enable_tailscale = true`, inspect the current tailnet Access
+Controls policy and verify the intended audience can reach only TCP 443 on the
+Operator's proxy tag. Confirm `tag:k8s-operator` owns `tag:k8s`, and confirm the
+OAuth client has the required Service, Device Core, and Auth Key write scopes
+with the Operator tag. Preserve unrelated grants and do not widen the current
+audience automatically. Terraform does not update tailnet policy. The existing
+LabCLIP Tailscale runbook is the command-level reference for its policy and
+OAuth prerequisites.
+
+The current Operator chart default is `1.76.1`; LabCLIP's optional-access
+runbook documents `1.98.4`. Compare the existing release and review the plan
+before enabling Terraform management. Do not adopt, replace, or downgrade an
+existing release without reconciling its ownership and the version difference.
 
 ## Cluster contract
 
@@ -73,7 +96,7 @@ Tailscale is disabled by default and needs no OAuth credentials unless
 | MinIO code store | Namespace `argo`, secret `minio-code-secret`, path `/mnt/data/minio-code`, pinned Community image, ClusterIP service, loopback port `3910` |
 | MinIO ML-assets store | Namespace `argo`, secret `minio-ml-assets-secret`, path `/data/jayn2u/minio`, ClusterIP service |
 | Cache storage | `labclip-local-cache`, retained local PVs and one claim per PV in the active LabCLIP run namespace |
-| Argo Workflows | Chart `1.0.20`, app `v4.0.7`, internal `argo-server` Service, controller watches `argo` |
+| Argo Workflows | In `platform_mode = "argo"` only: chart `1.0.20`, app `v4.0.7`, internal `argo-server` Service, controller watches `argo` |
 | NVIDIA GPU support | Device plugin chart `0.19.3`; the k3s-created `RuntimeClass/nvidia` remains Ansible's runtime integration output |
 | Pipeline credentials | `ghcr-secret`, `ghcr-pull-secret`, `wandb-secret`, MinIO pipeline and researcher secrets |
 
