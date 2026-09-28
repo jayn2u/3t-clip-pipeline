@@ -19,6 +19,7 @@ GENERATED_ROOT = REPOSITORY_ROOT / "kubeflow/generated"
 TERRAFORM_ROOT = REPOSITORY_ROOT / "terraform"
 MAX_APPLY_ATTEMPTS = 6
 TERRAFORM_CONSOLE_EXPRESSION = """jsonencode({
+  platform_mode = var.platform_mode,
   argo_namespace = var.argo_namespace,
   labclip_run_namespace = var.labclip_run_namespace,
   enable_tailscale = var.enable_tailscale,
@@ -54,6 +55,7 @@ class KubeflowApplyError(RuntimeError):
 
 @dataclass(frozen=True)
 class TerraformOwnerInventory:
+    platform_mode: str
     argo_namespace: str
     run_namespace: str
     enable_tailscale: bool
@@ -102,10 +104,13 @@ def terraform_owner_inventory(
             payload = json.loads(payload)
         if not isinstance(payload, dict):
             raise TypeError
+        platform_mode = payload["platform_mode"]
         argo_namespace = payload["argo_namespace"]
         run_namespace = payload["labclip_run_namespace"]
         enable_tailscale = payload["enable_tailscale"]
         nodes = payload["nodes"]
+        if platform_mode not in {"argo", "kubeflow"}:
+            raise TypeError
         if not isinstance(argo_namespace, str) or not argo_namespace:
             raise TypeError
         if not isinstance(run_namespace, str) or not run_namespace:
@@ -132,6 +137,7 @@ def terraform_owner_inventory(
             "Terraform returned an incomplete owner inventory; Kubeflow apply is blocked."
         ) from None
     return TerraformOwnerInventory(
+        platform_mode=platform_mode,
         argo_namespace=argo_namespace,
         run_namespace=run_namespace,
         enable_tailscale=enable_tailscale,
@@ -404,6 +410,10 @@ def apply_distribution(
         variable_files=terraform_var_files,
         variables=terraform_vars,
     )
+    if owner_inventory.platform_mode != "kubeflow":
+        raise KubeflowApplyError(
+            "Kubeflow apply requires Terraform platform_mode=kubeflow; apply is blocked."
+        )
     _validate_terraform_ownership(
         manifest_path,
         owner_inventory,

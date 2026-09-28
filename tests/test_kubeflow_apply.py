@@ -18,8 +18,9 @@ sys.path.insert(0, str(SCRIPTS_ROOT))
 from prepare_kubeflow_overlay import RenderApprovalError, approve_render
 
 
-def default_terraform_owners():
+def default_terraform_owners(platform_mode="kubeflow"):
     return SimpleNamespace(
+        platform_mode=platform_mode,
         argo_namespace="argo",
         run_namespace="kubeflow-user-labclip-example-com",
         enable_tailscale=False,
@@ -362,6 +363,22 @@ class KubeflowApplyTests(unittest.TestCase):
                 self.tools.apply_distribution(manifest, receipt)
         run.assert_not_called()
 
+    def test_apply_requires_kubeflow_terraform_mode(self) -> None:
+        self.require_implementation()
+        with mock.patch.object(
+            self.tools,
+            "terraform_owner_inventory",
+            return_value=default_terraform_owners("argo"),
+        ):
+            with mock.patch.object(
+                self.tools.subprocess,
+                "run",
+                return_value=mock.Mock(returncode=0, stdout="", stderr=""),
+            ) as run:
+                with self.assertRaises(self.tools.KubeflowApplyError):
+                    self.tools.apply_distribution(self.manifest, self.receipt)
+        run.assert_not_called()
+
     def test_crds_use_server_side_apply_and_body_uses_client_side_apply(self) -> None:
         self.require_implementation()
         crd = {
@@ -533,6 +550,27 @@ class KubeflowDriftTests(unittest.TestCase):
                 self.tools.check_distribution(self.manifest, self.receipt)
         run.assert_not_called()
 
+    def test_drift_and_readiness_require_kubeflow_terraform_mode(self) -> None:
+        with mock.patch.object(
+            self.tools,
+            "terraform_owner_inventory",
+            return_value=default_terraform_owners("argo"),
+        ):
+            with mock.patch.object(
+                self.tools.subprocess,
+                "run",
+                return_value=mock.Mock(
+                    returncode=0,
+                    stdout=json.dumps({"items": []}),
+                    stderr="",
+                ),
+            ) as run:
+                with self.assertRaises(self.tools.KubeflowCheckError):
+                    self.tools.check_distribution(self.manifest, self.receipt)
+                with self.assertRaises(self.tools.KubeflowCheckError):
+                    self.tools.check_readiness(self.manifest, self.receipt)
+        run.assert_not_called()
+
     def test_readiness_reports_unbound_claim_and_unavailable_deployment(self) -> None:
         deployment = {
             "apiVersion": "apps/v1",
@@ -629,6 +667,82 @@ class KubeflowDriftTests(unittest.TestCase):
             ready = self.tools.check_readiness(manifest, receipt)
         self.assertTrue(ready.ready)
 
+    def test_readiness_reports_missing_daemonset(self) -> None:
+        daemonset = {
+            "apiVersion": "apps/v1",
+            "kind": "DaemonSet",
+            "metadata": {"name": "readiness-probe", "namespace": "test-system"},
+            "spec": {},
+        }
+        manifest, receipt, inventory, approval, digest = make_render(
+            self.root,
+            extra_documents=(daemonset,),
+        )
+        approve_render(digest, manifest, receipt, inventory, approval)
+        result = mock.Mock(returncode=0, stdout=json.dumps({"items": []}), stderr="")
+        with mock.patch.object(self.tools.subprocess, "run", return_value=result) as run:
+            report = self.tools.check_readiness(manifest, receipt)
+        self.assertFalse(report.ready)
+        self.assertEqual(1, report.checked_objects)
+        self.assertEqual(("DaemonSet/test-system/readiness-probe",), report.pending_objects)
+        self.assertIn("daemonsets", run.call_args.args[0][2])
+
+    def test_readiness_requires_current_scheduled_daemonset_availability(self) -> None:
+        daemonset = {
+            "apiVersion": "apps/v1",
+            "kind": "DaemonSet",
+            "metadata": {"name": "readiness-probe", "namespace": "test-system"},
+            "spec": {},
+        }
+        manifest, receipt, inventory, approval, digest = make_render(
+            self.root,
+            extra_documents=(daemonset,),
+        )
+        approve_render(digest, manifest, receipt, inventory, approval)
+        live_daemonset = {
+            "kind": "DaemonSet",
+            "metadata": {
+                "name": "readiness-probe",
+                "namespace": "test-system",
+                "generation": 5,
+            },
+            "status": {
+                "observedGeneration": 4,
+                "desiredNumberScheduled": 2,
+                "numberReady": 2,
+                "numberAvailable": 2,
+            },
+        }
+        result = mock.Mock(
+            returncode=0,
+            stdout=json.dumps({"items": [live_daemonset]}),
+            stderr="",
+        )
+        with mock.patch.object(self.tools.subprocess, "run", return_value=result):
+            stale = self.tools.check_readiness(manifest, receipt)
+        self.assertFalse(stale.ready)
+        self.assertEqual(("DaemonSet/test-system/readiness-probe",), stale.pending_objects)
+        live_daemonset["status"]["observedGeneration"] = 5
+        live_daemonset["status"]["numberReady"] = 1
+        live_daemonset["status"]["numberAvailable"] = 1
+        result.stdout = json.dumps({"items": [live_daemonset]})
+        with mock.patch.object(self.tools.subprocess, "run", return_value=result):
+            partial = self.tools.check_readiness(manifest, receipt)
+        self.assertFalse(partial.ready)
+        self.assertEqual(("DaemonSet/test-system/readiness-probe",), partial.pending_objects)
+        live_daemonset["status"]["numberReady"] = 2
+        live_daemonset["status"]["numberAvailable"] = 1
+        result.stdout = json.dumps({"items": [live_daemonset]})
+        with mock.patch.object(self.tools.subprocess, "run", return_value=result):
+            unavailable = self.tools.check_readiness(manifest, receipt)
+        self.assertFalse(unavailable.ready)
+        self.assertEqual(("DaemonSet/test-system/readiness-probe",), unavailable.pending_objects)
+        live_daemonset["status"]["numberAvailable"] = 2
+        result.stdout = json.dumps({"items": [live_daemonset]})
+        with mock.patch.object(self.tools.subprocess, "run", return_value=result):
+            ready = self.tools.check_readiness(manifest, receipt)
+        self.assertTrue(ready.ready)
+
 
 class TerraformOwnerInventoryTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -645,6 +759,7 @@ class TerraformOwnerInventoryTests(unittest.TestCase):
             "Terraform-owned identities must come from the active Terraform inputs",
         )
         configured = {
+            "platform_mode": "kubeflow",
             "argo_namespace": "labclip-runtime",
             "labclip_run_namespace": "kubeflow-user-labclip-example-com",
             "enable_tailscale": True,
@@ -664,9 +779,11 @@ class TerraformOwnerInventoryTests(unittest.TestCase):
         expression = run.call_args.kwargs["input"]
         self.assertTrue(command[-2].endswith("private.tfvars"))
         self.assertIn("-var=argo_namespace=labclip-runtime", command)
+        self.assertIn("var.platform_mode", expression)
         self.assertIn("var.argo_namespace", expression)
         self.assertIn("var.nodes", expression)
         self.assertNotIn("tailscale_oauth_client_secret", expression)
+        self.assertEqual("kubeflow", owners.platform_mode)
         self.assertEqual("labclip-runtime", owners.argo_namespace)
         self.assertEqual("kubeflow-user-labclip-example-com", owners.run_namespace)
         self.assertEqual({"cache-a", "cache-b"}, owners.cache_claims)
@@ -675,6 +792,7 @@ class TerraformOwnerInventoryTests(unittest.TestCase):
     def test_console_expression_is_submitted_as_one_line(self) -> None:
         self.assertTrue(hasattr(self.tools, "terraform_owner_inventory"))
         configured = {
+            "platform_mode": "argo",
             "argo_namespace": "argo",
             "labclip_run_namespace": "kubeflow-user-labclip-example-com",
             "enable_tailscale": True,
@@ -684,8 +802,9 @@ class TerraformOwnerInventoryTests(unittest.TestCase):
         with mock.patch.object(self.tools.subprocess, "run", return_value=result) as run:
             self.tools.terraform_owner_inventory(terraform_dir=REPOSITORY_ROOT / "terraform")
         expression = run.call_args.kwargs["input"]
+        self.assertIn("platform_mode = var.platform_mode", expression)
         self.assertEqual(
-            "jsonencode({ argo_namespace = var.argo_namespace, labclip_run_namespace = var.labclip_run_namespace, enable_tailscale = var.enable_tailscale, nodes = { for node_name, node in var.nodes : node_name => { minio_role = node.minio_role, cache_claim = node.cache_claim } } })\n",
+            "jsonencode({ platform_mode = var.platform_mode, argo_namespace = var.argo_namespace, labclip_run_namespace = var.labclip_run_namespace, enable_tailscale = var.enable_tailscale, nodes = { for node_name, node in var.nodes : node_name => { minio_role = node.minio_role, cache_claim = node.cache_claim } } })\n",
             expression,
         )
 
@@ -718,6 +837,7 @@ class TerraformOwnerInventoryTests(unittest.TestCase):
     def test_guard_uses_configured_argo_and_nvidia_namespaces(self) -> None:
         self.assertIsNotNone(self.tools)
         inventory = SimpleNamespace(
+            platform_mode="kubeflow",
             argo_namespace="labclip-runtime",
             run_namespace="kubeflow-user-labclip-example-com",
             cache_claims={"cache-custom"},

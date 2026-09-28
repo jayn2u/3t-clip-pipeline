@@ -7,6 +7,7 @@ from typing import Sequence
 
 from apply_kubeflow import (
     TERRAFORM_ROOT,
+    TerraformOwnerInventory,
     _read_documents,
     _validate_terraform_ownership,
     _verify_approved,
@@ -50,6 +51,13 @@ def _result_text(result: subprocess.CompletedProcess) -> str:
     return "\n".join(part for part in (result.stdout, result.stderr) if part).strip()
 
 
+def _require_kubeflow_mode(owner_inventory: TerraformOwnerInventory) -> None:
+    if owner_inventory.platform_mode != "kubeflow":
+        raise KubeflowCheckError(
+            "Kubeflow drift and readiness checks require Terraform platform_mode=kubeflow."
+        )
+
+
 def check_distribution(
     manifest: Path,
     receipt: Path,
@@ -65,6 +73,7 @@ def check_distribution(
         variable_files=terraform_var_files,
         variables=terraform_vars,
     )
+    _require_kubeflow_mode(owner_inventory)
     _validate_terraform_ownership(manifest_path, owner_inventory)
     command = ["kubectl", "diff", "-f", str(manifest_path)]
     _verify_approved(manifest_path, receipt_path)
@@ -107,6 +116,13 @@ def _workload_ready(desired: dict, current: dict | None) -> bool:
         or observed_generation < generation
     ):
         return False
+    if kind == "DaemonSet":
+        desired_scheduled = int(status.get("desiredNumberScheduled", 0))
+        return (
+            desired_scheduled > 0
+            and int(status.get("numberReady", 0)) >= desired_scheduled
+            and int(status.get("numberAvailable", 0)) >= desired_scheduled
+        )
     desired_replicas = int(desired.get("spec", {}).get("replicas", 1))
     if desired_replicas == 0:
         return True
@@ -130,12 +146,13 @@ def check_readiness(
         variable_files=terraform_var_files,
         variables=terraform_vars,
     )
+    _require_kubeflow_mode(owner_inventory)
     _validate_terraform_ownership(manifest_path, owner_inventory)
     _verify_approved(manifest_path, receipt_path)
     command = [
         "kubectl",
         "get",
-        "deployments,statefulsets,persistentvolumeclaims",
+        "deployments,statefulsets,daemonsets,persistentvolumeclaims",
         "--all-namespaces",
         "-o",
         "json",
@@ -154,7 +171,7 @@ def check_readiness(
     expected = [
         item
         for item in documents
-        if item.get("kind") in {"Deployment", "StatefulSet", "PersistentVolumeClaim"}
+        if item.get("kind") in {"Deployment", "StatefulSet", "DaemonSet", "PersistentVolumeClaim"}
     ]
     pending = []
     for desired in expected:

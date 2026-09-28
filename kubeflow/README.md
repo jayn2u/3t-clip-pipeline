@@ -134,7 +134,8 @@ apply used an additional `-var-file`, pass that same file to both scripts with
 `--terraform-var-file terraform/private-values.tfvars`. If it used non-sensitive
 CLI `-var` overrides, repeat each one as `--terraform-var key=value`. This is
 important for the configured Argo and Kubeflow run namespaces and cache names;
-the scripts fail closed if Terraform cannot resolve a complete owner inventory.
+the scripts fail closed if Terraform cannot resolve a complete owner inventory
+or if the resolved `platform_mode` is not `kubeflow`.
 Sensitive values belong only in private variable files, never `--terraform-var`
 or a command-line argument.
 
@@ -175,9 +176,10 @@ python3 scripts/check_kubeflow.py \
 
 The drift report invokes only `kubectl diff`; it prints changed-object counts
 without printing diff bodies. Readiness checks compare rendered Deployments,
-StatefulSets, and PVCs with their live status. Check the Central Dashboard and
-Dex login in a browser as a separate runtime check; Kubernetes readiness alone
-does not prove the UI flow works.
+StatefulSets, DaemonSets, and PVCs with live status. DaemonSets must have a
+current observed generation and all desired scheduled Pods Ready and Available.
+Check the Central Dashboard and Dex login in a browser as a separate runtime
+check; Kubernetes readiness alone does not prove the UI flow works.
 
 For the local UI, forward only the Istio gateway to loopback:
 
