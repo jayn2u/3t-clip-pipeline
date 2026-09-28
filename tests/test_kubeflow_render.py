@@ -258,16 +258,60 @@ class KubeflowRenderTests(unittest.TestCase):
         self.assertEqual("labclip-kubeflow", ingress["spec"]["tls"][0]["hosts"][0])
         self.assertNotEqual("true", ingress.get("metadata", {}).get("annotations", {}).get("tailscale.com/funnel"))
 
+    def test_istio_cni_daemonsets_use_node_specific_k3s_paths(self) -> None:
+        documents = self.load_documents()
+        daemonsets = [
+            document
+            for document in documents
+            if document.get("kind") == "DaemonSet"
+            and document.get("metadata", {}).get("name", "").startswith("istio-cni-node")
+        ]
+        self.assertEqual(2, len(daemonsets))
+        expected = {
+            "istio-cni-node": (
+                "vis-lab",
+                "/mnt/data/labclip-k3s/agent/etc/cni/net.d",
+                "/mnt/data/labclip-k3s/data/cni",
+            ),
+            "istio-cni-node-ubuntu": (
+                "ubuntu",
+                "/data/jayn2u/labclip-k3s/agent/etc/cni/net.d",
+                "/data/jayn2u/labclip-k3s/data/cni",
+            ),
+        }
+        selectors = []
+        for daemonset in daemonsets:
+            name = daemonset["metadata"]["name"]
+            node_name, expected_conf_dir, expected_bin_dir = expected[name]
+            selector_value = "istio-cni-node" if node_name == "vis-lab" else "istio-cni-node-ubuntu"
+            spec = daemonset["spec"]
+            pod_spec = spec["template"]["spec"]
+            selector = spec["selector"]["matchLabels"]
+            pod_labels = spec["template"]["metadata"]["labels"]
+            with self.subTest(daemonset=name):
+                self.assertEqual(node_name, pod_spec["nodeSelector"]["kubernetes.io/hostname"])
+                self.assertEqual("istio-cni", pod_spec["serviceAccountName"])
+                self.assertEqual({"k8s-app": selector_value}, selector)
+                self.assertEqual(selector_value, pod_labels["k8s-app"])
+                volumes = {volume["name"]: volume["hostPath"]["path"] for volume in pod_spec["volumes"] if "hostPath" in volume}
+                self.assertEqual(expected_conf_dir, volumes["cni-net-dir"])
+                self.assertEqual(expected_bin_dir, volumes["cni-bin-dir"])
+            selectors.append(selector)
+        self.assertNotEqual(
+            selectors[0]["k8s-app"],
+            selectors[1]["k8s-app"],
+        )
+
     def test_render_inventory_is_deterministic(self) -> None:
         self.require_implementation()
         first_inventory = self.receipt.inventory
         self.assertFalse(self.receipt.approved)
         self.assertEqual(tuple(sorted(first_inventory)), first_inventory)
         self.assertEqual(len(first_inventory), len({tuple(row) for row in first_inventory}))
-        self.assertEqual(728, len(first_inventory))
+        self.assertEqual(729, len(first_inventory))
         second_path = self.temp_root / "rendered-second.yaml"
         second = self.tools.render_distribution(EXPECTED_SOURCE_REF, self.site_dir, second_path)
-        self.assertEqual(728, len(second.inventory))
+        self.assertEqual(729, len(second.inventory))
         self.assertEqual(self.receipt.sha256, second.sha256)
         self.assertEqual(first_inventory, second.inventory)
 
@@ -338,6 +382,59 @@ class RenderApprovalTests(unittest.TestCase):
                 },
             },
         ]
+        for node_name, daemonset_name, selector_value, conf_dir, bin_dir in (
+            (
+                "vis-lab",
+                "istio-cni-node",
+                "istio-cni-node",
+                "/mnt/data/labclip-k3s/agent/etc/cni/net.d",
+                "/mnt/data/labclip-k3s/data/cni",
+            ),
+            (
+                "ubuntu",
+                "istio-cni-node-ubuntu",
+                "istio-cni-node-ubuntu",
+                "/data/jayn2u/labclip-k3s/agent/etc/cni/net.d",
+                "/data/jayn2u/labclip-k3s/data/cni",
+            ),
+        ):
+            documents.append(
+                {
+                    "apiVersion": "apps/v1",
+                    "kind": "DaemonSet",
+                    "metadata": {
+                        "name": daemonset_name,
+                        "namespace": "kube-system",
+                        "labels": {"k8s-app": "istio-cni-node"},
+                    },
+                    "spec": {
+                        "selector": {"matchLabels": {"k8s-app": selector_value}},
+                        "template": {
+                            "metadata": {"labels": {"k8s-app": selector_value}},
+                            "spec": {
+                                "containers": [
+                                    {
+                                        "name": "install-cni",
+                                        "volumeMounts": [
+                                            {"name": "cni-bin-dir", "mountPath": "/host/opt/cni/bin"},
+                                            {"name": "cni-net-dir", "mountPath": "/host/etc/cni/net.d"},
+                                        ],
+                                    }
+                                ],
+                                "nodeSelector": {
+                                    "kubernetes.io/os": "linux",
+                                    "kubernetes.io/hostname": node_name,
+                                },
+                                "serviceAccountName": "istio-cni",
+                                "volumes": [
+                                    {"name": "cni-bin-dir", "hostPath": {"path": bin_dir}},
+                                    {"name": "cni-net-dir", "hostPath": {"path": conf_dir}},
+                                ],
+                            },
+                        },
+                    },
+                }
+            )
         manifest = "---\n".join(yaml.safe_dump(item, sort_keys=False) for item in documents)
         self.manifest_path.write_text(manifest)
         self.manifest_path.chmod(0o600)
@@ -451,6 +548,42 @@ class ModelRegistryNamespacePatchTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(ValueError, "allowlisted object is missing or duplicated"):
             tools.patch_model_registry_namespace(source, "kubeflow-user-labclip-example-com")
+
+
+class IstioCniPatchTests(unittest.TestCase):
+    def test_immutable_upstream_selector_drift_fails_closed(self) -> None:
+        tools = load_tools()
+        daemonset = {
+            "apiVersion": "apps/v1",
+            "kind": "DaemonSet",
+            "metadata": {"name": "istio-cni-node", "namespace": "kube-system"},
+            "spec": {
+                "selector": {"matchLabels": {"k8s-app": "changed-upstream"}},
+                "template": {
+                    "metadata": {"labels": {"k8s-app": "istio-cni-node"}},
+                    "spec": {
+                        "containers": [
+                            {
+                                "name": "install-cni",
+                                "volumeMounts": [
+                                    {"name": "cni-bin-dir", "mountPath": "/host/opt/cni/bin"},
+                                    {"name": "cni-net-dir", "mountPath": "/host/etc/cni/net.d"},
+                                ],
+                            }
+                        ],
+                        "nodeSelector": {"kubernetes.io/os": "linux"},
+                        "serviceAccountName": "istio-cni",
+                        "volumes": [
+                            {"name": "cni-bin-dir", "hostPath": {"path": "/opt/cni/bin"}},
+                            {"name": "cni-net-dir", "hostPath": {"path": "/etc/cni/net.d"}},
+                        ],
+                    },
+                },
+            },
+        }
+        source = yaml.safe_dump(daemonset, sort_keys=False)
+        with self.assertRaisesRegex(ValueError, "selector changed"):
+            tools.patch_istio_cni_daemonsets(source)
 
 
 if __name__ == "__main__":

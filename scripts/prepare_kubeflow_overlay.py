@@ -1,4 +1,5 @@
 import argparse
+import copy
 from dataclasses import dataclass, field
 import hashlib
 import json
@@ -99,6 +100,22 @@ MODEL_REGISTRY_NAMESPACE_REFERENCE_COUNT = (
     len(MODEL_REGISTRY_NAMESPACE_RESOURCES)
     + len(MODEL_REGISTRY_SUBJECT_NAMESPACE_RESOURCES)
     + len(MODEL_REGISTRY_SERVICE_HOST_RESOURCES)
+)
+ISTIO_CNI_NODE_CONFIGS = (
+    (
+        "vis-lab",
+        "istio-cni-node",
+        "istio-cni-node",
+        "/mnt/data/labclip-k3s/agent/etc/cni/net.d",
+        "/mnt/data/labclip-k3s/data/cni",
+    ),
+    (
+        "ubuntu",
+        "istio-cni-node-ubuntu",
+        "istio-cni-node-ubuntu",
+        "/data/jayn2u/labclip-k3s/agent/etc/cni/net.d",
+        "/data/jayn2u/labclip-k3s/data/cni",
+    ),
 )
 
 
@@ -530,6 +547,112 @@ def patch_model_registry_namespace(rendered: str, profile_name: str) -> str:
     return patched
 
 
+def _cni_host_volume(pod_spec: dict, name: str, expected_path: str) -> dict:
+    matches = [volume for volume in pod_spec.get("volumes", []) if volume.get("name") == name]
+    if len(matches) != 1:
+        raise ValueError("The pinned Istio CNI volume layout changed.")
+    volume = matches[0]
+    host_path = volume.get("hostPath")
+    if not isinstance(host_path, dict) or host_path.get("path") != expected_path:
+        raise ValueError("The pinned Istio CNI hostPath layout changed.")
+    return volume
+
+
+def _validate_upstream_istio_cni_daemonset(daemonset: dict) -> None:
+    if (
+        daemonset.get("apiVersion") != "apps/v1"
+        or daemonset.get("kind") != "DaemonSet"
+        or daemonset.get("metadata", {}).get("name") != "istio-cni-node"
+        or daemonset.get("metadata", {}).get("namespace") != "kube-system"
+    ):
+        raise ValueError("The pinned Istio CNI DaemonSet identity changed.")
+    spec = daemonset.get("spec", {})
+    if spec.get("selector", {}).get("matchLabels") != {"k8s-app": "istio-cni-node"}:
+        raise ValueError("The upstream Istio CNI DaemonSet selector changed; refusing an unsafe update.")
+    template = spec.get("template", {})
+    if template.get("metadata", {}).get("labels", {}).get("k8s-app") != "istio-cni-node":
+        raise ValueError("The upstream Istio CNI pod label changed.")
+    pod_spec = template.get("spec", {})
+    if pod_spec.get("serviceAccountName") != "istio-cni":
+        raise ValueError("The upstream Istio CNI service account changed.")
+    if pod_spec.get("nodeSelector") != {"kubernetes.io/os": "linux"}:
+        raise ValueError("The upstream Istio CNI node selector changed.")
+    install_containers = [
+        container for container in pod_spec.get("containers", []) if container.get("name") == "install-cni"
+    ]
+    if len(install_containers) != 1:
+        raise ValueError("The upstream Istio CNI installer container changed.")
+    mount_paths = {
+        mount.get("name"): mount.get("mountPath")
+        for mount in install_containers[0].get("volumeMounts", [])
+    }
+    if mount_paths.get("cni-bin-dir") != "/host/opt/cni/bin":
+        raise ValueError("The upstream Istio CNI binary mount changed.")
+    if mount_paths.get("cni-net-dir") != "/host/etc/cni/net.d":
+        raise ValueError("The upstream Istio CNI config mount changed.")
+    _cni_host_volume(pod_spec, "cni-bin-dir", "/opt/cni/bin")
+    _cni_host_volume(pod_spec, "cni-net-dir", "/etc/cni/net.d")
+
+
+def _configure_istio_cni_daemonset(template: dict, config: tuple[str, str, str, str, str]) -> dict:
+    node_name, daemonset_name, selector_value, conf_dir, bin_dir = config
+    daemonset = copy.deepcopy(template)
+    daemonset["metadata"]["name"] = daemonset_name
+    spec = daemonset["spec"]
+    template_spec = spec["template"]["spec"]
+    if daemonset_name != "istio-cni-node":
+        spec["selector"]["matchLabels"]["k8s-app"] = selector_value
+        spec["template"]["metadata"]["labels"]["k8s-app"] = selector_value
+    template_spec["nodeSelector"]["kubernetes.io/hostname"] = node_name
+    _cni_host_volume(template_spec, "cni-net-dir", "/etc/cni/net.d")["hostPath"]["path"] = conf_dir
+    _cni_host_volume(template_spec, "cni-bin-dir", "/opt/cni/bin")["hostPath"]["path"] = bin_dir
+    return daemonset
+
+
+def patch_istio_cni_daemonsets(rendered: str) -> str:
+    try:
+        roots = [root for root in yaml.compose_all(rendered) if root is not None]
+    except yaml.YAMLError as exc:
+        raise ValueError("The pinned Kubeflow render is not valid YAML.") from exc
+    upstream_nodes = [
+        root
+        for root in roots
+        if _yaml_object_target(root) == ("apps/v1", "DaemonSet", "istio-cni-node")
+    ]
+    if len(upstream_nodes) != 1:
+        raise ValueError("Expected exactly one upstream Istio CNI DaemonSet.")
+    if any(
+        _yaml_object_target(root) == ("apps/v1", "DaemonSet", "istio-cni-node-ubuntu")
+        for root in roots
+    ):
+        raise ValueError("The upstream render already contains the site-specific Ubuntu CNI DaemonSet.")
+    root = upstream_nodes[0]
+    namespace = _yaml_node_at_path(root, ("metadata", "namespace"))
+    if namespace.value != "kube-system":
+        raise ValueError("The upstream Istio CNI DaemonSet namespace changed.")
+    start = root.start_mark.index
+    end = root.end_mark.index
+    raw_document = rendered[start:end]
+    try:
+        upstream_daemonset = yaml.safe_load(raw_document)
+    except yaml.YAMLError as exc:
+        raise ValueError("The upstream Istio CNI DaemonSet is not valid YAML.") from exc
+    _validate_upstream_istio_cni_daemonset(upstream_daemonset)
+    configured = [
+        _configure_istio_cni_daemonset(upstream_daemonset, config)
+        for config in ISTIO_CNI_NODE_CONFIGS
+    ]
+    selectors = [item["spec"]["selector"]["matchLabels"] for item in configured]
+    if selectors[0] == selectors[1]:
+        raise ValueError("The site-specific Istio CNI DaemonSet selectors overlap.")
+    replacement = "\n---\n".join(
+        yaml.safe_dump(daemonset, sort_keys=False).rstrip("\n")
+        for daemonset in configured
+    ) + "\n"
+    patched = rendered[:start] + replacement + rendered[end:]
+    return patched
+
+
 def _find_one(documents: list[dict], kind: str, name: str, namespace: str) -> dict:
     matches = [
         document
@@ -543,11 +666,66 @@ def _find_one(documents: list[dict], kind: str, name: str, namespace: str) -> di
     return matches[0]
 
 
+def _validate_istio_cni_daemonsets(documents: list[dict]) -> None:
+    expected_names = {config[1] for config in ISTIO_CNI_NODE_CONFIGS}
+    daemonsets = [
+        document
+        for document in documents
+        if document.get("kind") == "DaemonSet"
+        and document.get("metadata", {}).get("name", "").startswith("istio-cni-node")
+    ]
+    if not daemonsets:
+        return
+    if {item.get("metadata", {}).get("name") for item in daemonsets} != expected_names:
+        raise ValueError("The rendered Istio CNI DaemonSet inventory is unexpected.")
+    if len(daemonsets) != len(expected_names):
+        raise ValueError("The rendered Istio CNI DaemonSet inventory contains duplicates.")
+    observed_selectors = []
+    for node_name, daemonset_name, selector_value, conf_dir, bin_dir in ISTIO_CNI_NODE_CONFIGS:
+        daemonset = _find_one(documents, "DaemonSet", daemonset_name, "kube-system")
+        spec = daemonset.get("spec", {})
+        template = spec.get("template", {})
+        pod_spec = template.get("spec", {})
+        selector = spec.get("selector", {}).get("matchLabels", {})
+        if selector != {"k8s-app": selector_value}:
+            raise ValueError("An Istio CNI DaemonSet selector is unexpected or overlapping.")
+        if template.get("metadata", {}).get("labels", {}).get("k8s-app") != selector_value:
+            raise ValueError("An Istio CNI DaemonSet pod label does not match its selector.")
+        if pod_spec.get("serviceAccountName") != "istio-cni":
+            raise ValueError("An Istio CNI DaemonSet uses an unexpected service account.")
+        if pod_spec.get("nodeSelector") != {
+            "kubernetes.io/os": "linux",
+            "kubernetes.io/hostname": node_name,
+        }:
+            raise ValueError("An Istio CNI DaemonSet is not restricted to its configured node.")
+        _cni_host_volume(pod_spec, "cni-net-dir", conf_dir)
+        _cni_host_volume(pod_spec, "cni-bin-dir", bin_dir)
+        install_containers = [
+            container
+            for container in pod_spec.get("containers", [])
+            if container.get("name") == "install-cni"
+        ]
+        if len(install_containers) != 1:
+            raise ValueError("An Istio CNI DaemonSet installer container is missing or duplicated.")
+        mounts = {
+            mount.get("name"): mount.get("mountPath")
+            for mount in install_containers[0].get("volumeMounts", [])
+        }
+        if mounts.get("cni-net-dir") != "/host/etc/cni/net.d":
+            raise ValueError("An Istio CNI DaemonSet config mount path changed.")
+        if mounts.get("cni-bin-dir") != "/host/opt/cni/bin":
+            raise ValueError("An Istio CNI DaemonSet binary mount path changed.")
+        observed_selectors.append(selector["k8s-app"])
+    if len(set(observed_selectors)) != 2:
+        raise ValueError("The Istio CNI DaemonSet selectors must be disjoint.")
+
+
 def _validate_rendered(documents: list[dict], rendered: str) -> None:
     if UPSTREAM_DEFAULT_EMAIL in rendered:
         raise ValueError("The rendered distribution contains the upstream sample Dex credential.")
     if MODEL_REGISTRY_EXAMPLE_NAMESPACE in rendered:
         raise ValueError("The rendered distribution contains the upstream example Profile namespace.")
+    _validate_istio_cni_daemonsets(documents)
     identities = [_object_identity(document) for document in documents]
     if len(identities) != len(set(identities)):
         raise ValueError("The rendered distribution contains duplicate Kubernetes object identities.")
@@ -797,6 +975,7 @@ def render_distribution(
         raise ValueError("The Dex identity is required to derive the Kubeflow Profile namespace.")
     profile_name = _validate_email(dex_users[0]["email"])[1]
     patched_render = patch_model_registry_namespace(result.stdout, profile_name)
+    patched_render = patch_istio_cni_daemonsets(patched_render)
     documents = _load_yaml_documents(patched_render)
     _validate_rendered(documents, patched_render)
     inventory = _build_inventory(documents)
