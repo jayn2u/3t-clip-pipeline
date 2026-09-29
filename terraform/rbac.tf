@@ -1,4 +1,6 @@
 resource "kubernetes_service_account" "labclip_runner" {
+  count = var.platform_mode == "argo" ? 1 : 0
+
   metadata {
     name      = "labclip-runner"
     namespace = kubernetes_namespace.argo.metadata[0].name
@@ -6,6 +8,8 @@ resource "kubernetes_service_account" "labclip_runner" {
 }
 
 resource "kubernetes_cluster_role" "labclip_runner" {
+  count = var.platform_mode == "argo" ? 1 : 0
+
   metadata {
     name = "labclip-runner"
   }
@@ -36,6 +40,8 @@ resource "kubernetes_cluster_role" "labclip_runner" {
 }
 
 resource "kubernetes_cluster_role_binding" "labclip_runner" {
+  count = var.platform_mode == "argo" ? 1 : 0
+
   metadata {
     name = "labclip-runner"
   }
@@ -43,17 +49,19 @@ resource "kubernetes_cluster_role_binding" "labclip_runner" {
   role_ref {
     api_group = "rbac.authorization.k8s.io"
     kind      = "ClusterRole"
-    name      = kubernetes_cluster_role.labclip_runner.metadata[0].name
+    name      = kubernetes_cluster_role.labclip_runner[0].metadata[0].name
   }
 
   subject {
     kind      = "ServiceAccount"
-    name      = kubernetes_service_account.labclip_runner.metadata[0].name
+    name      = kubernetes_service_account.labclip_runner[0].metadata[0].name
     namespace = kubernetes_namespace.argo.metadata[0].name
   }
 }
 
 resource "kubernetes_role" "argo_workflowtaskresults_cleanup" {
+  count = var.platform_mode == "argo" ? 1 : 0
+
   metadata {
     name      = "argo-workflowtaskresults-cleanup"
     namespace = kubernetes_namespace.argo.metadata[0].name
@@ -67,15 +75,17 @@ resource "kubernetes_role" "argo_workflowtaskresults_cleanup" {
 }
 
 resource "kubernetes_role_binding" "argo_workflowtaskresults_cleanup" {
+  count = var.platform_mode == "argo" ? 1 : 0
+
   metadata {
-    name      = kubernetes_role.argo_workflowtaskresults_cleanup.metadata[0].name
+    name      = kubernetes_role.argo_workflowtaskresults_cleanup[0].metadata[0].name
     namespace = kubernetes_namespace.argo.metadata[0].name
   }
 
   role_ref {
     api_group = "rbac.authorization.k8s.io"
     kind      = "Role"
-    name      = kubernetes_role.argo_workflowtaskresults_cleanup.metadata[0].name
+    name      = kubernetes_role.argo_workflowtaskresults_cleanup[0].metadata[0].name
   }
 
   subject {
@@ -83,4 +93,29 @@ resource "kubernetes_role_binding" "argo_workflowtaskresults_cleanup" {
     name      = "argo"
     namespace = kubernetes_namespace.argo.metadata[0].name
   }
+}
+
+moved {
+  from = kubernetes_service_account.labclip_runner
+  to   = kubernetes_service_account.labclip_runner[0]
+}
+
+moved {
+  from = kubernetes_cluster_role.labclip_runner
+  to   = kubernetes_cluster_role.labclip_runner[0]
+}
+
+moved {
+  from = kubernetes_cluster_role_binding.labclip_runner
+  to   = kubernetes_cluster_role_binding.labclip_runner[0]
+}
+
+moved {
+  from = kubernetes_role.argo_workflowtaskresults_cleanup
+  to   = kubernetes_role.argo_workflowtaskresults_cleanup[0]
+}
+
+moved {
+  from = kubernetes_role_binding.argo_workflowtaskresults_cleanup
+  to   = kubernetes_role_binding.argo_workflowtaskresults_cleanup[0]
 }

@@ -2,8 +2,8 @@
 
 Terraform owns resources inside the Kubernetes API. Ansible prepares the
 hosts, k3s, NVIDIA runtime, and local directories; Terraform installs the GPU
-device plugin, local cache volumes, MinIO, Argo Workflows, RBAC, Secrets, and
-the LabCLIP WorkflowTemplate.
+device plugin, local cache volumes, MinIO, either standalone Argo Workflows or
+Kubeflow run-namespace bindings, RBAC, Tailscale, and pipeline Secrets.
 
 ## Apply
 
@@ -64,7 +64,30 @@ If `lab_clip` is not a sibling checkout, set
 Terraform root.
 
 Tailscale is disabled by default and needs no OAuth credentials unless
-`enable_tailscale = true` is selected explicitly.
+`enable_tailscale = true` is selected explicitly. When enabled, the plan checks
+that both OAuth values are non-empty before creating the Operator Secret. Keep
+the values in the ignored private Terraform inputs; do not pass them as
+`-var` arguments.
+
+For the Kubeflow PoC, Terraform owns the optional Operator Helm release and its
+OAuth Secret. The Kustomize overlay owns `Ingress/istio-system/kubeflow-tailnet`.
+The Istio gateway remains a `ClusterIP` Service, and the Ingress forwards only
+to its HTTP port 80 through Tailscale HTTPS. No Terraform resource manages the
+Kubeflow Ingress.
+
+Before setting `enable_tailscale = true`, inspect the current tailnet Access
+Controls policy and verify the intended audience can reach only TCP 443 on the
+Operator's proxy tag. Confirm `tag:k8s-operator` owns `tag:k8s`, and confirm the
+OAuth client has the required Service, Device Core, and Auth Key write scopes
+with the Operator tag. Preserve unrelated grants and do not widen the current
+audience automatically. Terraform does not update tailnet policy. The existing
+LabCLIP Tailscale runbook is the command-level reference for its policy and
+OAuth prerequisites.
+
+The current Operator chart default is `1.76.1`; LabCLIP's optional-access
+runbook documents `1.98.4`. Compare the existing release and review the plan
+before enabling Terraform management. Do not adopt, replace, or downgrade an
+existing release without reconciling its ownership and the version difference.
 
 ## Cluster contract
 
@@ -72,8 +95,8 @@ Tailscale is disabled by default and needs no OAuth credentials unless
 |---|---|
 | MinIO code store | Namespace `argo`, secret `minio-code-secret`, path `/mnt/data/minio-code`, pinned Community image, ClusterIP service, loopback port `3910` |
 | MinIO ML-assets store | Namespace `argo`, secret `minio-ml-assets-secret`, path `/data/jayn2u/minio`, ClusterIP service |
-| Cache storage | `labclip-local-cache`, retained local PVs and claims `labclip-cache-vis-lab` / `labclip-cache-ubuntu` in `argo` |
-| Argo Workflows | Chart `1.0.20`, app `v4.0.7`, internal `argo-server` Service, controller watches `argo` |
+| Cache storage | `labclip-local-cache`, retained local PVs and one claim per PV in the active LabCLIP run namespace |
+| Argo Workflows | In `platform_mode = "argo"` only: chart `1.0.20`, app `v4.0.7`, internal `argo-server` Service, controller watches `argo` |
 | NVIDIA GPU support | Device plugin chart `0.19.3`; the k3s-created `RuntimeClass/nvidia` remains Ansible's runtime integration output |
 | Pipeline credentials | `ghcr-secret`, `ghcr-pull-secret`, `wandb-secret`, MinIO pipeline and researcher secrets |
 
@@ -86,6 +109,85 @@ The local PV reclaim policy is `Retain`. Destroying Terraform-managed
 Kubernetes resources does not delete the cache directories or MinIO object
 data. MinIO uses the canonical existing data roots above; old data directories
 are not referenced or cleaned up by Terraform.
+
+## Kubeflow run bindings and retained cache PV handoff
+
+Keep `enable_kubeflow_run_bindings = false` while applying the Kubeflow
+foundation. This stage removes the Argo run claims but retains the local PVs and
+their host data. Before enabling the run bindings, set
+`labclip_run_namespace` to the actual Kubeflow Profile namespace. It must differ
+from `argo`, where MinIO and the source pipeline Secrets remain installed.
+
+Stage two also installs a Kubernetes 1.36 `MutatingAdmissionPolicy` and its
+binding. The API is stable in Kubernetes 1.36, and a policy requires a binding
+before it takes effect ([policy guide](https://v1-36.docs.kubernetes.io/docs/reference/access-authn-authz/mutating-admission-policy/), [v1 API reference](https://v1-36.docs.kubernetes.io/docs/reference/kubernetes-api/admissionregistration/mutating-admission-policy-v1/)). The CEL rules match only
+CREATE requests for core/v1 Pods in the configured run namespace that request
+`nvidia.com/gpu` and omit `spec.runtimeClassName`. They set `runtimeClassName`
+to `nvidia` with an apply configuration; an explicitly selected RuntimeClass is
+left intact. CEL evaluation errors fail admission for matching requests. The
+policy is cluster-scoped, so cluster administrators can change or remove it;
+its binding is enabled only with Kubeflow stage two, and its matching rules
+limit its Pod effect to GPU workloads in the Profile namespace.
+
+Kubeflow stage two reads each PV from the Kubernetes API before creating any
+run claim or copied Secret. The plan-time guard accepts an unclaimed PV in
+`Available`, or a PV in `Bound` whose claim name and namespace match the
+configured Kubeflow claim. It rejects `Released` PVs, stale claim references,
+changed local paths, and node-affinity mismatches. It never patches a PV. The
+additional `confirm_kubeflow_cache_pv_rebind` input defaults to `false` and
+must be set to `true` only after completing the checks below.
+
+Stop workloads using the cache before beginning. Record the current host-data
+inventory fingerprints and inspect the PVCs and PVs before switching modes:
+
+```bash
+ssh vis-lab 'sudo find /mnt/data/labclip-cache -xdev -type f -printf "%P\t%s\t%T@\n" | LC_ALL=C sort | sha256sum'
+ssh ubuntu 'sudo find /data/jayn2u/labclip-cache -xdev -type f -printf "%P\t%s\t%T@\n" | LC_ALL=C sort | sha256sum'
+kubectl -n argo get pvc labclip-cache-vis-lab labclip-cache-ubuntu -o yaml
+kubectl get pv labclip-cache-vis-lab labclip-cache-ubuntu -o yaml
+```
+
+Apply Kubeflow stage one with run bindings disabled, then verify that no old or
+target-namespace claim remains, that the PVs have the expected local paths and
+node affinity, and that both host-data fingerprints still match:
+
+```bash
+LABCLIP_RUN_NAMESPACE="replace-with-profile-namespace"
+kubectl -n argo get pvc labclip-cache-vis-lab labclip-cache-ubuntu --ignore-not-found -o yaml
+kubectl -n "$LABCLIP_RUN_NAMESPACE" get pvc labclip-cache-vis-lab labclip-cache-ubuntu --ignore-not-found -o yaml
+kubectl get pv labclip-cache-vis-lab labclip-cache-ubuntu -o yaml
+ssh vis-lab 'sudo find /mnt/data/labclip-cache -xdev -type f -printf "%P\t%s\t%T@\n" | LC_ALL=C sort | sha256sum'
+ssh ubuntu 'sudo find /data/jayn2u/labclip-cache -xdev -type f -printf "%P\t%s\t%T@\n" | LC_ALL=C sort | sha256sum'
+```
+
+If a PV is `Released`, first confirm its `claimRef` names the removed `argo`
+PVC, both old and target PVCs are absent, the node affinity and local path are
+unchanged, and the host-data fingerprints match. Only then clear that exact
+stale reference; repeat for the other PV only if it independently meets the
+same checks:
+
+```bash
+PV_NAME=labclip-cache-vis-lab
+kubectl patch pv "$PV_NAME" --type=json -p='[{"op":"remove","path":"/spec/claimRef"}]'
+kubectl get pv "$PV_NAME" -o yaml
+```
+
+Set `PV_NAME` to exactly one PV that passed all the checks. Run the command
+again for the other PV only after separately verifying that PV.
+
+After a patch, confirm the PV is `Available`, has no `claimRef`, retains its
+expected `spec.local.path` and node affinity, and the host-data fingerprints
+still match. Do not patch a `Bound` PV or a PV whose old claim, data, path, or
+node ownership is uncertain. The provider preflight rejects `Released` even
+when its stale claim name happens to match the new namespace and PVC name.
+
+Only after those checks, set `platform_mode = "kubeflow"`,
+`enable_kubeflow_run_bindings = true`,
+`confirm_kubeflow_cache_pv_rebind = true`, and the distinct Profile namespace;
+then inspect `terraform plan` before applying. On a fresh cluster, confirm the
+PVs are `Available` with no `claimRef` and verify the same paths, affinity, and
+host data before setting the acknowledgement. If `nodes` or cache PV names are
+customized, use those configured names and paths in every command above.
 
 ## Drift and existing installations
 
@@ -148,6 +250,7 @@ data after teardown; see the dated record under `docs/validation/`.
 | `namespace.tf` | `argo` namespace |
 | `rbac.tf` | LabCLIP runner ServiceAccount and ClusterRole binding |
 | `storage.tf` | Local cache StorageClass, PVs, and PVCs |
+| `kubeflow_integration.tf` | Kubeflow run-namespace gate, PV preflight, scoped run Secrets, and stage-two GPU runtime admission |
 | `minio.tf` | MinIO deployments/services and pipeline Secrets |
 | `nvidia_device_plugin.tf` | NVIDIA device plugin plus its NFD/GFD components |
 | `argo_workflows.tf` | Argo Helm release and imported LabCLIP WorkflowTemplate |

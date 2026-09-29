@@ -2,6 +2,14 @@ output "argo_namespace" {
   value = kubernetes_namespace.argo.metadata[0].name
 }
 
+output "platform_mode" {
+  value = var.platform_mode
+}
+
+output "labclip_run_namespace" {
+  value = local.cache_claim_namespace
+}
+
 output "minio_services" {
   description = "In-cluster DNS names for each MinIO deployment."
   value = {
