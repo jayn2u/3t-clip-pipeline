@@ -17,6 +17,11 @@ Nothing in this directory talks to the Kubernetes API directly.
 
 ## Usage
 
+`ansible.cfg` uses the built-in `default` stdout callback with
+`callback_result_format = yaml`. This keeps YAML-formatted task results without
+depending on the removed `community.general.yaml` callback. Ansible Core 2.13
+or newer supports this setting; the synchronization CI uses Core 2.16.3.
+
 ```bash
 cp inventory/hosts.example.yml inventory/hosts.yml
 ansible-playbook playbooks/preflight.yml
