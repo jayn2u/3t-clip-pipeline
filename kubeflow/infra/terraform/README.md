@@ -208,7 +208,7 @@ data after teardown; see the dated record under `docs/validation/`.
 | File | Owns |
 |---|---|
 | `namespace.tf` | `argo` namespace labelled with `labclip.io/iac-stack=kubeflow` |
-| `ownership_guard.tf` | Plan-time guard that fails when another stack owns the `argo` namespace |
+| `ownership_guard.tf` | Plan-time guard that fails when another stack owns the `argo` namespace or the `labclip-local-cache` StorageClass. The StorageClass has a fixed name, so the guard still works when the two stacks use different `argo_namespace` values. `tests/ownership_guard.tftest.hcl` checks the guard with mocked providers. |
 | `outputs.tf` | Namespace, MinIO service, and cache volume outputs |
 | `storage.tf` | Local cache StorageClass, PVs, and PVCs |
 | `kubeflow_integration.tf` | Kubeflow run-namespace gate, PV preflight, scoped run Secrets, and stage-two GPU runtime admission |

@@ -146,7 +146,7 @@ data after teardown; see the dated record under `docs/validation/`.
 | File | Owns |
 |---|---|
 | `namespace.tf` | `argo` namespace labelled with `labclip.io/iac-stack=argo` |
-| `ownership_guard.tf` | Plan-time guard that fails when another stack owns the `argo` namespace |
+| `ownership_guard.tf` | Plan-time guard that fails when another stack owns the `argo` namespace or the `labclip-local-cache` StorageClass. The StorageClass has a fixed name, so the guard still works when the two stacks use different `argo_namespace` values. `tests/ownership_guard.tftest.hcl` checks the guard with mocked providers. |
 | `rbac.tf` | LabCLIP runner ServiceAccount and ClusterRole binding |
 | `storage.tf` | Local cache StorageClass, PVs, and PVCs |
 | `minio.tf` | MinIO deployments/services and pipeline Secrets |
