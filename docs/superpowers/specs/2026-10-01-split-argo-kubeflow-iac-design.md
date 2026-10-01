@@ -18,7 +18,8 @@ Only one stack is deployed on the cluster at a time. Switching platforms means d
 In scope:
 
 - Two independent stacks with the layout below.
-- Moving every Kubeflow-only file into `kubeflow/` without changing script logic beyond path constants.
+- Moving every Kubeflow-only file into `kubeflow/`. Script logic changes only in two ways: path constants, and removal of the `platform_mode` inventory field and its two `platform_mode != "kubeflow"` guards in `apply_kubeflow.py` and `check_kubeflow.py`. Those guards read `var.platform_mode` through `terraform console`; the variable no longer exists in the Kubeflow root, and the guard's purpose (refusing to run against an Argo-mode root) is now enforced by the directory split.
+- Moving the Argo-only smoke scripts (`smoke_labclip_runtime.py`, `smoke_labclip_worker.py`, `smoke_cleanup_markers.py`) and their tests into `argo/`.
 - A cross-stack ownership guard.
 - Relocating the kubeconfig output to a location shared only through Ansible.
 - Updating tests, ignore rules, runbooks, and the one `lab_clip` document that references the Terraform path.
@@ -37,14 +38,19 @@ argo/
   README.md
   terraform/                  Argo-only root
   scripts/
+    __init__.py
     prepare_terraform_inputs.py
     bootstrap_minio.sh
+    smoke_labclip_runtime.py  Argo-only (argo CLI, WorkflowTemplate)
+    smoke_labclip_worker.py
+    smoke_cleanup_markers.py
   tests/
 kubeflow/
   README.md
   terraform/                  Kubeflow-only root
   overlays/labclip/           existing Kustomize overlay
   scripts/
+    __init__.py
     prepare_terraform_inputs.py
     bootstrap_minio.sh
     apply_kubeflow.py
@@ -113,7 +119,7 @@ Both stacks create the same cluster objects (the `argo` namespace, MinIO, cache 
 
 ## Verification
 
-1. All Python tests pass (`unittest` discovery in each stack's `tests/` and in `tests/`).
+1. All Python tests pass. The baseline before this change is 82 passing tests. Each stack is tested from its own directory so that its `scripts` package is the one imported: run `uv run --no-project --with bcrypt==4.2.1 --with pyyaml python -m unittest discover -s tests` from the repository root (Ansible tests), from `argo/`, and from `kubeflow/`.
 2. For each Terraform root: `terraform fmt -check`, `terraform init -backend=false`, `terraform validate`.
 3. For the Argo root, a read-only `terraform plan` against the empty cluster with stack-local inputs shows only creations for the resource set of `5b01f5d`.
 4. `git diff --stat -M` confirms moved files are detected as renames and that Kubeflow script changes are limited to path constants.
