@@ -1,13 +1,21 @@
 ansible/inventory/hosts.yml
+ansible/generated/
 
-terraform/.terraform/
-terraform/terraform.tfstate
-terraform/terraform.tfstate.backup
-terraform/.terraform.tfstate.lock.info
-terraform/terraform.tfvars
-terraform/*.auto.tfvars.json
-terraform/generated/
+argo/terraform/.terraform/
+argo/terraform/terraform.tfstate
+argo/terraform/terraform.tfstate.backup
+argo/terraform/terraform.tfstate.*.backup
+argo/terraform/.terraform.tfstate.lock.info
+argo/terraform/terraform.tfvars
+argo/terraform/*.auto.tfvars.json
 
+kubeflow/terraform/.terraform/
+kubeflow/terraform/terraform.tfstate
+kubeflow/terraform/terraform.tfstate.backup
+kubeflow/terraform/terraform.tfstate.*.backup
+kubeflow/terraform/.terraform.tfstate.lock.info
+kubeflow/terraform/terraform.tfvars
+kubeflow/terraform/*.auto.tfvars.json
 kubeflow/generated/
 kubeflow/overlays/labclip/generated/
 

@@ -3,7 +3,7 @@ k3s_version: "v1.36.2+k3s1"
 nvidia_container_toolkit_version: "1.20.1-1"
 
 k3s_token_file: "{{ k3s_data_dir }}/server/node-token"
-k3s_kubeconfig_fetch_dest: "{{ playbook_dir }}/../../terraform/generated/kubeconfig"
+k3s_kubeconfig_fetch_dest: "{{ playbook_dir }}/../generated/kubeconfig"
 
 k3s_server_host: "{{ groups['k3s_server'][0] }}"
 k3s_server_address: "{{ hostvars[k3s_server_host]['k3s_node_ip'] }}"
