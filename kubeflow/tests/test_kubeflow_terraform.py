@@ -54,73 +54,7 @@ def variable(name: str) -> str:
     )
 
 
-class TerraformPlatformModeTests(unittest.TestCase):
-    def test_default_mode_keeps_argo(self) -> None:
-        platform_mode = block(
-            read_terraform("variables.tf"), r'variable\s+"platform_mode"\s*\{'
-        )
-        self.assertRegex(platform_mode, r'default\s*=\s*"argo"')
-        self.assertRegex(
-            resource("argo_workflows", "helm_release", "argo_workflows.tf"),
-            r'count\s*=\s*var\.platform_mode\s*==\s*"argo"\s*\?\s*1\s*:\s*0',
-        )
-        self.assertRegex(
-            resource("labclip_train", "kubectl_manifest", "argo_workflows.tf"),
-            r'count\s*=\s*var\.platform_mode\s*==\s*"argo"\s*\?\s*1\s*:\s*0',
-        )
-        runner = resource("labclip_runner", "kubernetes_service_account", "rbac.tf")
-        self.assertRegex(
-            runner,
-            r'count\s*=\s*var\.platform_mode\s*==\s*"argo"\s*\?\s*1\s*:\s*0',
-        )
-        for name, kind, file_name in (
-            ("argo_workflows", "helm_release", "argo_workflows.tf"),
-            ("labclip_train", "kubectl_manifest", "argo_workflows.tf"),
-            ("labclip_runner", "kubernetes_service_account", "rbac.tf"),
-            ("labclip_runner", "kubernetes_cluster_role", "rbac.tf"),
-            ("labclip_runner", "kubernetes_cluster_role_binding", "rbac.tf"),
-            (
-                "argo_workflowtaskresults_cleanup",
-                "kubernetes_role",
-                "rbac.tf",
-            ),
-            (
-                "argo_workflowtaskresults_cleanup",
-                "kubernetes_role_binding",
-                "rbac.tf",
-            ),
-        ):
-            with self.subTest(state_migration=f"{kind}.{name}"):
-                source = read_terraform(file_name)
-                self.assertRegex(
-                    source,
-                    rf'from\s*=\s*{re.escape(kind)}\.{re.escape(name)}\s+to\s*=\s*{re.escape(kind)}\.{re.escape(name)}\[0\]',
-                )
-
-    def test_kubeflow_mode_has_no_standalone_argo(self) -> None:
-        for name, kind, file_name in (
-            ("argo_workflows", "helm_release", "argo_workflows.tf"),
-            ("labclip_train", "kubectl_manifest", "argo_workflows.tf"),
-            ("labclip_runner", "kubernetes_service_account", "rbac.tf"),
-            ("labclip_runner", "kubernetes_cluster_role", "rbac.tf"),
-            ("labclip_runner", "kubernetes_cluster_role_binding", "rbac.tf"),
-            (
-                "argo_workflowtaskresults_cleanup",
-                "kubernetes_role",
-                "rbac.tf",
-            ),
-            (
-                "argo_workflowtaskresults_cleanup",
-                "kubernetes_role_binding",
-                "rbac.tf",
-            ),
-        ):
-            with self.subTest(resource=f"{kind}.{name}"):
-                self.assertRegex(
-                    resource(name, kind, file_name),
-                    r'count\s*=\s*var\.platform_mode\s*==\s*"argo"\s*\?\s*1\s*:\s*0',
-                )
-
+class KubeflowTerraformTests(unittest.TestCase):
     def test_run_cache_claim_has_one_namespace(self) -> None:
         claims = re.findall(
             r'resource\s+"kubernetes_persistent_volume_claim"\s+"cache"\s*\{',
@@ -134,17 +68,17 @@ class TerraformPlatformModeTests(unittest.TestCase):
         storage_locals = block(read_terraform("storage.tf"), r'locals\s*\{')
         self.assertRegex(
             storage_locals,
-            r'cache_claims\s*=\s*var\.platform_mode\s*==\s*"argo"\s*\?\s*var\.nodes\s*:[\s\S]*?local\.kubeflow_run_bindings_enabled\s*\?\s*var\.nodes\s*:\s*\{\}',
+            r'cache_claims\s*=\s*local\.kubeflow_run_bindings_enabled\s*\?\s*var\.nodes\s*:\s*\{\}',
         )
         self.assertRegex(
             storage_locals,
-            r'cache_claim_namespace\s*=\s*var\.platform_mode\s*==\s*"argo"\s*\?\s*\(?\s*kubernetes_namespace\.argo\.metadata\[0\]\.name\s*\)?\s*:\s*var\.labclip_run_namespace',
+            r'cache_claim_namespace\s*=\s*var\.labclip_run_namespace',
         )
 
         kubeflow_integration = read_terraform("kubeflow_integration.tf")
         self.assertRegex(
             kubeflow_integration,
-            r'kubeflow_run_bindings_enabled\s*=\s*var\.platform_mode\s*==\s*"kubeflow"\s*&&\s*var\.enable_kubeflow_run_bindings',
+            r'kubeflow_run_bindings_enabled\s*=\s*var\.enable_kubeflow_run_bindings',
         )
         for name in (
             "kubeflow_minio_credentials",
@@ -169,7 +103,7 @@ class TerraformPlatformModeTests(unittest.TestCase):
         self.assertRegex(wandb_secret, r'kubernetes_secret\.wandb\.metadata\[0\]\.name')
 
         outputs = read_terraform("outputs.tf")
-        self.assertRegex(outputs, r'output\s+"platform_mode"')
+        self.assertNotRegex(outputs, r'output\s+"platform_mode"')
         self.assertRegex(outputs, r'output\s+"labclip_run_namespace"')
 
     def test_kubeflow_run_bindings_require_a_distinct_namespace(self) -> None:

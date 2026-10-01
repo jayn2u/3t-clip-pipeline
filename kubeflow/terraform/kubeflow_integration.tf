@@ -1,5 +1,5 @@
 locals {
-  kubeflow_run_bindings_enabled    = var.platform_mode == "kubeflow" && var.enable_kubeflow_run_bindings
+  kubeflow_run_bindings_enabled    = var.enable_kubeflow_run_bindings
   kubeflow_gpu_runtime_policy_name = "labclip-kubeflow-gpu-runtime"
   kubeflow_gpu_runtime_policy_yaml = yamlencode({
     apiVersion = "admissionregistration.k8s.io/v1"

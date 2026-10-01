@@ -16,17 +16,6 @@ variable "argo_namespace" {
   default     = "argo"
 }
 
-variable "platform_mode" {
-  description = "Platform that owns LabCLIP pipeline execution."
-  type        = string
-  default     = "argo"
-
-  validation {
-    condition     = contains(["argo", "kubeflow"], var.platform_mode)
-    error_message = "platform_mode must be argo or kubeflow."
-  }
-}
-
 variable "labclip_run_namespace" {
   description = "Namespace where LabCLIP run claims and credentials are installed."
   type        = string
@@ -48,18 +37,6 @@ variable "confirm_kubeflow_cache_pv_rebind" {
   description = "Confirm that retained cache PVs have no stale claimRef and are safe to bind in the Kubeflow run namespace."
   type        = bool
   default     = false
-}
-
-variable "argo_workflows_chart_version" {
-  description = "Pinned argo-workflows Helm chart version."
-  type        = string
-  default     = "1.0.20"
-}
-
-variable "labclip_workflow_template_path" {
-  description = "Path to the generated LabCLIP WorkflowTemplate YAML, relative to the Terraform root."
-  type        = string
-  default     = "../../lab_clip/pipeline/k8s/generated/labclip-train.yaml"
 }
 
 variable "labclip_root" {
