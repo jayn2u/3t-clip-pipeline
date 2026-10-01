@@ -13,15 +13,15 @@ import yaml
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
-OVERLAY_ROOT = REPOSITORY_ROOT / "overlays/labclip"
-PREPARE_SCRIPT = REPOSITORY_ROOT / "scripts/prepare_kubeflow_overlay.py"
+OVERLAY_ROOT = REPOSITORY_ROOT
+PREPARE_SCRIPT = REPOSITORY_ROOT / "scripts/prepare.py"
 EXPECTED_SOURCE_REF = "github.com/kubeflow/community-distribution/example?ref=f09f3eeaa25cc852665f460497a42b7fc68639ac"
 
 
 def load_tools():
     if not PREPARE_SCRIPT.is_file():
         return None
-    spec = importlib.util.spec_from_file_location("prepare_kubeflow_overlay", PREPARE_SCRIPT)
+    spec = importlib.util.spec_from_file_location("prepare", PREPARE_SCRIPT)
     if spec is None or spec.loader is None:
         raise AssertionError("Kubeflow overlay preparation module cannot be loaded")
     module = importlib.util.module_from_spec(spec)
@@ -43,7 +43,7 @@ class KubeflowRenderTests(unittest.TestCase):
         cls.material = None
         cls.documents = None
         if cls.tools is not None and OVERLAY_ROOT.is_dir():
-            shutil.copytree(OVERLAY_ROOT, cls.site_dir, ignore=shutil.ignore_patterns("generated"))
+            shutil.copytree(OVERLAY_ROOT, cls.site_dir, ignore=shutil.ignore_patterns("generated", "scripts", "tests"))
             cls.material = cls.tools.prepare_identity(
                 cls.identity_path,
                 email="labclip@example.com",
@@ -113,7 +113,7 @@ class KubeflowRenderTests(unittest.TestCase):
             hmac.compare_digest(override.password_hash, reused_override.password_hash)
         )
         override_site = self.temp_root / "operator-overlay"
-        shutil.copytree(OVERLAY_ROOT, override_site, ignore=shutil.ignore_patterns("generated"))
+        shutil.copytree(OVERLAY_ROOT, override_site, ignore=shutil.ignore_patterns("generated", "scripts", "tests"))
         override_patches = self.tools.write_site_patches(override, override_site)
         config_patch = yaml.safe_load(override_patches[0].read_text())
         dex_settings = yaml.safe_load(config_patch["data"]["config.yaml"])

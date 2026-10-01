@@ -5,7 +5,7 @@ from pathlib import Path
 import subprocess
 from typing import Sequence
 
-from apply_kubeflow import (
+from apply import (
     KubeflowApplyError,
     TERRAFORM_ROOT,
     TerraformOwnerInventory,
@@ -15,7 +15,7 @@ from apply_kubeflow import (
     require_not_owned_by_argo_stack,
     terraform_owner_inventory,
 )
-from prepare_kubeflow_overlay import RenderApprovalError
+from prepare import RenderApprovalError
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]

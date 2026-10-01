@@ -13,9 +13,10 @@ import yaml
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS_ROOT = REPOSITORY_ROOT / "scripts"
+TERRAFORM_ROOT = REPOSITORY_ROOT.parent / "infra" / "terraform"
 sys.path.insert(0, str(SCRIPTS_ROOT))
 
-from prepare_kubeflow_overlay import RenderApprovalError, approve_render
+from prepare import RenderApprovalError, approve_render
 
 
 def default_terraform_owners():
@@ -29,12 +30,12 @@ def default_terraform_owners():
 
 
 def load_apply_tools():
-    if "apply_kubeflow" in sys.modules:
-        return sys.modules["apply_kubeflow"]
-    script = SCRIPTS_ROOT / "apply_kubeflow.py"
+    if "apply" in sys.modules:
+        return sys.modules["apply"]
+    script = SCRIPTS_ROOT / "apply.py"
     if not script.is_file():
         return None
-    spec = importlib.util.spec_from_file_location("apply_kubeflow", script)
+    spec = importlib.util.spec_from_file_location("apply", script)
     if spec is None or spec.loader is None:
         raise AssertionError("Kubeflow apply module cannot be loaded")
     module = importlib.util.module_from_spec(spec)
@@ -44,12 +45,12 @@ def load_apply_tools():
 
 
 def load_check_tools():
-    if "check_kubeflow" in sys.modules:
-        return sys.modules["check_kubeflow"]
-    script = SCRIPTS_ROOT / "check_kubeflow.py"
+    if "check" in sys.modules:
+        return sys.modules["check"]
+    script = SCRIPTS_ROOT / "check.py"
     if not script.is_file():
         return None
-    spec = importlib.util.spec_from_file_location("check_kubeflow", script)
+    spec = importlib.util.spec_from_file_location("check", script)
     if spec is None or spec.loader is None:
         raise AssertionError("Kubeflow drift module cannot be loaded")
     module = importlib.util.module_from_spec(spec)
@@ -732,7 +733,7 @@ class TerraformOwnerInventoryTests(unittest.TestCase):
         result = mock.Mock(returncode=0, stdout=json.dumps(json.dumps(configured)), stderr="")
         with mock.patch.object(self.tools.subprocess, "run", return_value=result) as run:
             owners = self.tools.terraform_owner_inventory(
-                terraform_dir=REPOSITORY_ROOT / "terraform",
+                terraform_dir=TERRAFORM_ROOT,
                 variable_files=(Path("private.tfvars"),),
                 variables=("argo_namespace=labclip-runtime",),
             )
@@ -758,7 +759,7 @@ class TerraformOwnerInventoryTests(unittest.TestCase):
         }
         result = mock.Mock(returncode=0, stdout=json.dumps(json.dumps(configured)), stderr="")
         with mock.patch.object(self.tools.subprocess, "run", return_value=result) as run:
-            self.tools.terraform_owner_inventory(terraform_dir=REPOSITORY_ROOT / "terraform")
+            self.tools.terraform_owner_inventory(terraform_dir=TERRAFORM_ROOT)
         expression = run.call_args.kwargs["input"]
         self.assertEqual(
             "jsonencode({ argo_namespace = var.argo_namespace, labclip_run_namespace = var.labclip_run_namespace, enable_tailscale = var.enable_tailscale, nodes = { for node_name, node in var.nodes : node_name => { minio_role = node.minio_role, cache_claim = node.cache_claim } } })\n",
@@ -770,7 +771,7 @@ class TerraformOwnerInventoryTests(unittest.TestCase):
         result = mock.Mock(returncode=1, stdout="", stderr="sensitive diagnostic text")
         with mock.patch.object(self.tools.subprocess, "run", return_value=result):
             with self.assertRaises(self.tools.KubeflowApplyError) as raised:
-                self.tools.terraform_owner_inventory(terraform_dir=REPOSITORY_ROOT / "terraform")
+                self.tools.terraform_owner_inventory(terraform_dir=TERRAFORM_ROOT)
         self.assertNotIn("sensitive diagnostic text", str(raised.exception))
 
     def test_inventory_rejects_sensitive_cli_variables(self) -> None:
@@ -786,7 +787,7 @@ class TerraformOwnerInventoryTests(unittest.TestCase):
                 with mock.patch.object(self.tools.subprocess, "run") as run:
                     with self.assertRaises(self.tools.KubeflowApplyError):
                         self.tools.terraform_owner_inventory(
-                            terraform_dir=REPOSITORY_ROOT / "terraform",
+                            terraform_dir=TERRAFORM_ROOT,
                             variables=(variable,),
                         )
                 run.assert_not_called()
@@ -912,7 +913,7 @@ class KubeflowStackOwnershipTests(unittest.TestCase):
 
     def test_apply_cli_checks_ownership_before_applying(self) -> None:
         owners = default_terraform_owners()
-        with mock.patch.object(sys, "argv", ["apply_kubeflow.py"]):
+        with mock.patch.object(sys, "argv", ["apply.py"]):
             with mock.patch.object(self.tools, "terraform_owner_inventory", return_value=owners):
                 with mock.patch.object(
                     self.tools,
@@ -928,7 +929,7 @@ class KubeflowStackOwnershipTests(unittest.TestCase):
 
     def test_check_cli_checks_ownership_before_checking(self) -> None:
         owners = default_terraform_owners()
-        with mock.patch.object(sys, "argv", ["check_kubeflow.py"]):
+        with mock.patch.object(sys, "argv", ["check.py"]):
             with mock.patch.object(self.checks, "terraform_owner_inventory", return_value=owners):
                 with mock.patch.object(
                     self.checks,

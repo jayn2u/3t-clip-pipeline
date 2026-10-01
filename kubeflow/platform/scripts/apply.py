@@ -11,12 +11,12 @@ from typing import Sequence
 
 import yaml
 
-from prepare_kubeflow_overlay import RenderApprovalError, verify_render_approval
+from prepare import RenderApprovalError, verify_render_approval
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 GENERATED_ROOT = REPOSITORY_ROOT / "generated"
-TERRAFORM_ROOT = REPOSITORY_ROOT / "terraform"
+TERRAFORM_ROOT = REPOSITORY_ROOT.parent / "infra" / "terraform"
 MAX_APPLY_ATTEMPTS = 6
 FOREIGN_STACK_NAME = "argo"
 OWNER_LABEL_JSONPATH = "{.metadata.labels.labclip\\.io/iac-stack}"

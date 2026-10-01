@@ -11,7 +11,7 @@ Argo stack has its own root under `argo/terraform`.
 From the repository root, prepare the private inputs once:
 
 ```bash
-python3 kubeflow/scripts/prepare_terraform_inputs.py
+python3 kubeflow/infra/scripts/prepare_terraform_inputs.py
 ```
 
 Terraform continues to load the existing MinIO root credentials from
@@ -26,7 +26,7 @@ identities stable and points Terraform at the Ansible-generated
 
 For a generated credential file created before the current helper, repair only
 secret values that begin with a dash by running
-`python3 kubeflow/scripts/prepare_terraform_inputs.py --repair-leading-dash-secrets`.
+`python3 kubeflow/infra/scripts/prepare_terraform_inputs.py --repair-leading-dash-secrets`.
 This keeps all safe credentials unchanged and is repeatable. The bootstrap CLI
 passes MinIO user secrets as command arguments, where a leading dash is parsed
 as an option; newly generated secret values use an alphanumeric first
@@ -35,7 +35,7 @@ character.
 Then run Terraform and bootstrap the stores:
 
 ```bash
-cd kubeflow/terraform
+cd kubeflow/infra/terraform
 terraform init
 terraform plan
 terraform apply
@@ -187,13 +187,13 @@ do not import or replace it blindly.
 
 ## Teardown
 
-Terraform does not remove the Kustomize-applied Kubeflow distribution. Before destroying the resource layer, remove that distribution through the reviewed procedure in [`../README.md`](../README.md#teardown-boundary).
+Terraform does not remove the Kustomize-applied Kubeflow distribution. Before destroying the resource layer, remove that distribution through the reviewed procedure in [`../../README.md`](../../README.md#teardown-boundary).
 
 Then remove the resource layer before the host layer:
 
 ```bash
-terraform -chdir=kubeflow/terraform plan -destroy
-terraform -chdir=kubeflow/terraform destroy
+terraform -chdir=kubeflow/infra/terraform plan -destroy
+terraform -chdir=kubeflow/infra/terraform destroy
 cd ansible
 ansible-playbook playbooks/teardown.yml -e confirm_teardown=yes
 ```

@@ -2,7 +2,7 @@ import argparse
 from pathlib import Path
 import re
 
-from prepare_kubeflow_overlay import (
+from prepare import (
     OVERLAY_ROOT,
     UPSTREAM_SOURCE_REF,
     approve_render,

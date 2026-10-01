@@ -31,7 +31,7 @@ IDENTITY_KEYS = {
     "tailnet_hostname",
     "user_id",
 }
-OVERLAY_ROOT = Path(__file__).resolve().parents[1] / "overlays/labclip"
+OVERLAY_ROOT = Path(__file__).resolve().parents[1]
 MODEL_REGISTRY_EXAMPLE_NAMESPACE = "kubeflow-user-example-com"
 MODEL_REGISTRY_NAMESPACE_RESOURCES = (
     ("v1", "ServiceAccount", "model-registry-server"),
@@ -323,8 +323,8 @@ def write_site_patches(material: IdentityMaterial, site_dir: Path) -> tuple[Path
     site = Path(site_dir)
     generated = site / "generated"
     _private_directory(generated)
-    dex_template_path = site / "patches/dex-config-template.yaml"
-    ingress_template_path = site / "kubeflow-tailnet-ingress.yaml"
+    dex_template_path = site / "templates/dex-config-template.yaml"
+    ingress_template_path = site / "templates/kubeflow-tailnet-ingress.yaml"
     if not dex_template_path.is_file() or not ingress_template_path.is_file():
         raise FileNotFoundError("The Kubeflow site overlay templates are incomplete.")
     dex_patch = yaml.safe_load(dex_template_path.read_text(encoding="utf-8"))

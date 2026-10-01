@@ -5,7 +5,7 @@ labclip_root="${LABCLIP_ROOT:-/mnt/data/lab_clip}"
 labclip_script="${labclip_root}/pipeline/scripts/minio_bootstrap.py"
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 if [[ -z "${KUBECONFIG:-}" ]]; then
-  KUBECONFIG="${repo_root}/../ansible/generated/kubeconfig"
+  KUBECONFIG="${repo_root}/../../ansible/generated/kubeconfig"
   export KUBECONFIG
 fi
 

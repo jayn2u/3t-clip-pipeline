@@ -1,7 +1,7 @@
 variable "kubeconfig_path" {
   description = "Path to the kubeconfig produced by ansible/roles/k3s_server."
   type        = string
-  default     = "../../ansible/generated/kubeconfig"
+  default     = "../../../ansible/generated/kubeconfig"
 }
 
 variable "kube_context" {
