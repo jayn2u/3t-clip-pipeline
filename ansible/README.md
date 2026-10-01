@@ -3,7 +3,8 @@
 Owns everything below the Kubernetes API: OS prerequisites, the NVIDIA container
 runtime, local cache/MinIO directories, and installing k3s itself. It does **not**
 manage anything inside the cluster (no Kubernetes manifests, no Helm releases) —
-that is `../terraform`'s job.
+that is the job of the Terraform stacks (`../argo/terraform` and
+`../kubeflow/infra/terraform`).
 
 ## Scope boundary
 
@@ -73,11 +74,14 @@ package is absent.
 
 ## Tearing down (returning hosts to bare metal)
 
-Destroy the Terraform layer first, then remove k3s from every node:
+Destroy the deployed stack's Terraform layer first, then remove k3s from every node.
+For the Kubeflow stack, first remove the Kustomize-applied distribution as described
+in `../kubeflow/README.md`, and use `../kubeflow/infra/terraform` in place of
+`../argo/terraform` below:
 
 ```bash
-cd ../terraform && terraform destroy
-cd ../ansible
+cd ../argo/terraform && terraform destroy
+cd ../../ansible
 ansible-playbook playbooks/teardown.yml -e confirm_teardown=yes
 ```
 

@@ -94,10 +94,31 @@ class KubeflowStackIndependenceTests(unittest.TestCase):
             STACK_ROOT / "infra" / "README.md",
             TERRAFORM_ROOT / "README.md",
         ):
-            text = readme.read_text(encoding="utf-8")
+            text = re.sub(
+                r"## Migrating an existing checkout\n.*?(?=\n## |\Z)",
+                "",
+                readme.read_text(encoding="utf-8"),
+                flags=re.S,
+            )
             for forbidden in stale:
                 with self.subTest(readme=str(readme.relative_to(STACK_ROOT)), forbidden=forbidden):
                     self.assertNotIn(forbidden, text)
+
+    def test_readme_explains_migrating_an_existing_checkout(self) -> None:
+        readme = (STACK_ROOT / "README.md").read_text(encoding="utf-8")
+        section = re.search(r"## Migrating an existing checkout\n(.*?)(?=\n## |\Z)", readme, re.S)
+        self.assertIsNotNone(section)
+        for moved in (
+            "kubeflow/terraform/terraform.tfstate",
+            "kubeflow/infra/terraform/",
+            "kubeflow/generated/",
+            "kubeflow/overlays/labclip/generated/",
+            "kubeflow/platform/generated/",
+            "terraform/generated/kubeconfig",
+            "ansible/generated/kubeconfig",
+        ):
+            with self.subTest(moved=moved):
+                self.assertIn(moved, section.group(1))
 
 
 if __name__ == "__main__":
