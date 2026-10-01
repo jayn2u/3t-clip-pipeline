@@ -37,7 +37,7 @@ documentation when verifying current tags, OAuth scopes, and access behavior.
 The current Terraform chart default is Tailscale Operator 1.76.1. Compare it
 with any existing Operator release before enabling it; do not adopt an existing
 Helm release or change its version without a reviewed plan. OAuth client ID and
-secret must be provided through the ignored `kubeflow/terraform/terraform.tfvars` or the
+secret must be provided through the ignored `kubeflow/infra/terraform/terraform.tfvars` or the
 existing private Terraform input mechanism. Do not put either value in a shell
 argument, rendered manifest, screenshot, or chat.
 
@@ -58,10 +58,10 @@ policy and OAuth client have passed the preconditions above. Leave the run
 namespace integration disabled for the foundation stage.
 
 ```bash
-python3 kubeflow/scripts/prepare_terraform_inputs.py
-terraform -chdir=kubeflow/terraform init
-terraform -chdir=kubeflow/terraform plan -var='enable_kubeflow_run_bindings=false' -var='enable_tailscale=true'
-terraform -chdir=kubeflow/terraform apply -var='enable_kubeflow_run_bindings=false' -var='enable_tailscale=true'
+python3 kubeflow/infra/scripts/prepare_terraform_inputs.py
+terraform -chdir=kubeflow/infra/terraform init
+terraform -chdir=kubeflow/infra/terraform plan -var='enable_kubeflow_run_bindings=false' -var='enable_tailscale=true'
+terraform -chdir=kubeflow/infra/terraform apply -var='enable_kubeflow_run_bindings=false' -var='enable_tailscale=true'
 ```
 
 Inspect the complete Terraform plan before applying. Confirm it keeps the
@@ -75,8 +75,8 @@ pinned overlay. The first render is a candidate and prints its digest without
 printing the generated password or hash:
 
 ```bash
-uv run --with bcrypt==4.2.1 python kubeflow/scripts/prepare_kubeflow_overlay.py --identity-file kubeflow/generated/identity.json --email labclip@example.com --tailnet-hostname labclip-kubeflow
-python3 kubeflow/scripts/render_kubeflow.py
+uv run --with bcrypt==4.2.1 python kubeflow/platform/scripts/prepare.py --identity-file kubeflow/platform/generated/identity.json --email labclip@example.com --tailnet-hostname labclip-kubeflow
+python3 kubeflow/platform/scripts/render.py
 ```
 
 Review the pinned source, object inventory, gateway `ClusterIP` setting,
@@ -84,11 +84,11 @@ non-default Dex identity, and private Ingress contract. Approve only the exact
 digest reviewed in that render:
 
 ```bash
-python3 kubeflow/scripts/render_kubeflow.py --approve-digest <reviewed-sha256>
+python3 kubeflow/platform/scripts/render.py --approve-digest <reviewed-sha256>
 ```
 
 The rendered manifest, receipt, inventory, and approval must remain mode 0600.
-`apply_kubeflow.py` verifies the receipt, explicit digest approval, inventory,
+`apply.py` verifies the receipt, explicit digest approval, inventory,
 Terraform ownership boundary, and private-exposure checks immediately before
 each apply. The CRD stage uses server-side apply so large CRDs do not have to
 fit in the client-side `last-applied-configuration` annotation. It applies
@@ -106,7 +106,7 @@ withheld so manifest or Secret contents are not repeated in error messages.
 
 ```bash
 export KUBECONFIG="$PWD/ansible/generated/kubeconfig"
-python3 kubeflow/scripts/apply_kubeflow.py \
+python3 kubeflow/platform/scripts/apply.py \
   --terraform-var=enable_kubeflow_run_bindings=false \
   --terraform-var=labclip_run_namespace=kubeflow-user-labclip-example-com \
   --terraform-var=enable_tailscale=true
@@ -115,12 +115,12 @@ python3 kubeflow/scripts/apply_kubeflow.py \
 After applying Kubeflow, confirm that the generated Profile created the
 expected namespace. For the default PoC identity it is
 `kubeflow-user-labclip-example-com`. Verify the retained PVs and host data using
-the handoff checks in [`terraform/README.md`](terraform/README.md#kubeflow-run-bindings-and-retained-cache-pv-handoff).
+the handoff checks in [`infra/terraform/README.md`](infra/terraform/README.md#kubeflow-run-bindings-and-retained-cache-pv-handoff).
 Then enable Terraform's second stage and review its plan before applying:
 
 ```bash
-terraform -chdir=kubeflow/terraform plan -var='enable_kubeflow_run_bindings=true' -var='confirm_kubeflow_cache_pv_rebind=true' -var='labclip_run_namespace=kubeflow-user-labclip-example-com' -var='enable_tailscale=true'
-terraform -chdir=kubeflow/terraform apply -var='enable_kubeflow_run_bindings=true' -var='confirm_kubeflow_cache_pv_rebind=true' -var='labclip_run_namespace=kubeflow-user-labclip-example-com' -var='enable_tailscale=true'
+terraform -chdir=kubeflow/infra/terraform plan -var='enable_kubeflow_run_bindings=true' -var='confirm_kubeflow_cache_pv_rebind=true' -var='labclip_run_namespace=kubeflow-user-labclip-example-com' -var='enable_tailscale=true'
+terraform -chdir=kubeflow/infra/terraform apply -var='enable_kubeflow_run_bindings=true' -var='confirm_kubeflow_cache_pv_rebind=true' -var='labclip_run_namespace=kubeflow-user-labclip-example-com' -var='enable_tailscale=true'
 ```
 
 Set the run namespace to the exact name in the private identity file if the
@@ -132,11 +132,11 @@ The apply and drift scripts resolve Terraform-owned Kubernetes names by running
 `terraform console` against the current configuration. Terraform's automatic
 `terraform.tfvars` and `*.auto.tfvars` inputs are loaded normally. If a plan or
 apply used an additional `-var-file`, pass that same file to both scripts with
-`--terraform-var-file kubeflow/terraform/private-values.tfvars`. If it used non-sensitive
+`--terraform-var-file kubeflow/infra/terraform/private-values.tfvars`. If it used non-sensitive
 CLI `-var` overrides, repeat each one as `--terraform-var key=value`. This is
 important for the configured Argo and Kubeflow run namespaces and cache names;
 the scripts fail closed if Terraform cannot resolve a complete owner inventory
-or if the Terraform root is not the Kubeflow stack's `kubeflow/terraform`.
+or if the Terraform root is not the Kubeflow stack's `kubeflow/infra/terraform`.
 Sensitive values belong only in private variable files, never `--terraform-var`
 or a command-line argument.
 
@@ -167,7 +167,7 @@ that separately reviewed setup is completed.
 Run the read-only drift and readiness checks after both Terraform stages:
 
 ```bash
-python3 kubeflow/scripts/check_kubeflow.py \
+python3 kubeflow/platform/scripts/check.py \
   --terraform-var=enable_kubeflow_run_bindings=true \
   --terraform-var=confirm_kubeflow_cache_pv_rebind=true \
   --terraform-var=labclip_run_namespace=kubeflow-user-labclip-example-com \
@@ -206,13 +206,13 @@ digest. Repeat the apply to reconcile the exact approved manifest, then run the
 read-only drift and readiness report:
 
 ```bash
-python3 kubeflow/scripts/render_kubeflow.py
-python3 kubeflow/scripts/apply_kubeflow.py \
+python3 kubeflow/platform/scripts/render.py
+python3 kubeflow/platform/scripts/apply.py \
   --terraform-var=enable_kubeflow_run_bindings=true \
   --terraform-var=confirm_kubeflow_cache_pv_rebind=true \
   --terraform-var=labclip_run_namespace=kubeflow-user-labclip-example-com \
   --terraform-var=enable_tailscale=true
-python3 kubeflow/scripts/check_kubeflow.py \
+python3 kubeflow/platform/scripts/check.py \
   --terraform-var=enable_kubeflow_run_bindings=true \
   --terraform-var=confirm_kubeflow_cache_pv_rebind=true \
   --terraform-var=labclip_run_namespace=kubeflow-user-labclip-example-com \
@@ -235,4 +235,4 @@ reviewed platform resources. Preserve `/mnt/data/minio-code`,
 `/data/jayn2u/labclip-cache`; do not use a broad `kubectl delete all`,
 `kustomize delete`, or unreviewed `terraform destroy` as a shortcut.
 
-To switch to the Argo stack, finish this reviewed teardown first, then destroy the Terraform stack with `terraform -chdir=kubeflow/terraform destroy`, and only then apply `argo/terraform`. `terraform destroy` alone does not remove the Kustomize-applied distribution, and its Argo CRDs would collide with the Argo stack's Helm release. The ownership guard cannot detect this, so complete the teardown before applying the Argo stack. The same ownership check runs in `kubeflow/scripts/apply_kubeflow.py` and `check_kubeflow.py` to stop them from running against a cluster the Argo stack owns.
+To switch to the Argo stack, finish this reviewed teardown first, then destroy the Terraform stack with `terraform -chdir=kubeflow/infra/terraform destroy`, and only then apply `argo/terraform`. `terraform destroy` alone does not remove the Kustomize-applied distribution, and its Argo CRDs would collide with the Argo stack's Helm release. The ownership guard cannot detect this, so complete the teardown before applying the Argo stack. The same ownership check runs in `kubeflow/platform/scripts/apply.py` and `check.py` to stop them from running against a cluster the Argo stack owns.

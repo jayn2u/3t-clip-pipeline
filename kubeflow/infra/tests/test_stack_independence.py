@@ -78,6 +78,27 @@ class KubeflowStackIndependenceTests(unittest.TestCase):
         readme = (STACK_ROOT / "README.md").read_text(encoding="utf-8")
         self.assertIn("intentionally duplicated", readme)
 
+    def test_runbooks_use_only_the_new_layout(self) -> None:
+        stale = (
+            "overlays/labclip",
+            "kubeflow/terraform",
+            "kubeflow/generated",
+            "kubeflow/scripts",
+            "apply_kubeflow",
+            "check_kubeflow",
+            "render_kubeflow",
+            "prepare_kubeflow_overlay",
+        )
+        for readme in (
+            STACK_ROOT / "README.md",
+            STACK_ROOT / "infra" / "README.md",
+            TERRAFORM_ROOT / "README.md",
+        ):
+            text = readme.read_text(encoding="utf-8")
+            for forbidden in stale:
+                with self.subTest(readme=str(readme.relative_to(STACK_ROOT)), forbidden=forbidden):
+                    self.assertNotIn(forbidden, text)
+
 
 if __name__ == "__main__":
     unittest.main()
