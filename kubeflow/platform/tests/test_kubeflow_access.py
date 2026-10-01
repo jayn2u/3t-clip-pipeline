@@ -5,9 +5,9 @@ import yaml
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
-INGRESS_TEMPLATE = REPOSITORY_ROOT / "overlays/labclip/kubeflow-tailnet-ingress.yaml"
-TERRAFORM_TAILSCALE = REPOSITORY_ROOT / "terraform/tailscale.tf"
-KUBEFLOW_README = REPOSITORY_ROOT / "README.md"
+INGRESS_TEMPLATE = REPOSITORY_ROOT / "templates/kubeflow-tailnet-ingress.yaml"
+TERRAFORM_TAILSCALE = REPOSITORY_ROOT.parent / "infra/terraform/tailscale.tf"
+KUBEFLOW_README = REPOSITORY_ROOT.parent / "README.md"
 
 
 class KubeflowAccessTests(unittest.TestCase):
