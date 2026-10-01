@@ -31,7 +31,7 @@ IDENTITY_KEYS = {
     "tailnet_hostname",
     "user_id",
 }
-OVERLAY_ROOT = Path(__file__).resolve().parents[1] / "kubeflow/overlays/labclip"
+OVERLAY_ROOT = Path(__file__).resolve().parents[1] / "overlays/labclip"
 MODEL_REGISTRY_EXAMPLE_NAMESPACE = "kubeflow-user-example-com"
 MODEL_REGISTRY_NAMESPACE_RESOURCES = (
     ("v1", "ServiceAccount", "model-registry-server"),
@@ -1097,7 +1097,7 @@ def main() -> None:
     parser.add_argument(
         "--identity-file",
         type=Path,
-        default=_repository_root() / "kubeflow/generated/identity.json",
+        default=_repository_root() / "generated/identity.json",
     )
     parser.add_argument("--email")
     parser.add_argument("--tailnet-hostname")

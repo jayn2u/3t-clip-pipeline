@@ -285,7 +285,7 @@ def prepare_inputs(
             raise RuntimeError("Existing generated Terraform input must be a JSON object")
 
     result = dict(existing)
-    result["kubeconfig_path"] = str(ROOT / "terraform" / "generated" / "kubeconfig")
+    result["kubeconfig_path"] = str(ROOT.parent / "ansible" / "generated" / "kubeconfig")
     result["minio_credentials"] = stable_minio_credentials(existing.get("minio_credentials"))
     result.update(
         stable_root_credentials(

@@ -13,7 +13,7 @@ import yaml
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
-OVERLAY_ROOT = REPOSITORY_ROOT / "kubeflow/overlays/labclip"
+OVERLAY_ROOT = REPOSITORY_ROOT / "overlays/labclip"
 PREPARE_SCRIPT = REPOSITORY_ROOT / "scripts/prepare_kubeflow_overlay.py"
 EXPECTED_SOURCE_REF = "github.com/kubeflow/community-distribution/example?ref=f09f3eeaa25cc852665f460497a42b7fc68639ac"
 

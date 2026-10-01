@@ -17,7 +17,7 @@ from prepare_kubeflow_overlay import RenderApprovalError
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
-GENERATED_ROOT = REPOSITORY_ROOT / "kubeflow/generated"
+GENERATED_ROOT = REPOSITORY_ROOT / "generated"
 
 
 @dataclass(frozen=True)
@@ -51,13 +51,6 @@ def _result_text(result: subprocess.CompletedProcess) -> str:
     return "\n".join(part for part in (result.stdout, result.stderr) if part).strip()
 
 
-def _require_kubeflow_mode(owner_inventory: TerraformOwnerInventory) -> None:
-    if owner_inventory.platform_mode != "kubeflow":
-        raise KubeflowCheckError(
-            "Kubeflow drift and readiness checks require Terraform platform_mode=kubeflow."
-        )
-
-
 def check_distribution(
     manifest: Path,
     receipt: Path,
@@ -73,7 +66,6 @@ def check_distribution(
         variable_files=terraform_var_files,
         variables=terraform_vars,
     )
-    _require_kubeflow_mode(owner_inventory)
     _validate_terraform_ownership(manifest_path, owner_inventory)
     command = ["kubectl", "diff", "-f", str(manifest_path)]
     _verify_approved(manifest_path, receipt_path)
@@ -146,7 +138,6 @@ def check_readiness(
         variable_files=terraform_var_files,
         variables=terraform_vars,
     )
-    _require_kubeflow_mode(owner_inventory)
     _validate_terraform_ownership(manifest_path, owner_inventory)
     _verify_approved(manifest_path, receipt_path)
     command = [

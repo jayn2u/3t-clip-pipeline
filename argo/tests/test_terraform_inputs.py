@@ -105,7 +105,7 @@ class TerraformInputTests(unittest.TestCase):
             self.assertEqual("lab-team", first["wandb_entity"])
             self.assertEqual("clip-training", first["wandb_project"])
             self.assertEqual(
-                str(Path(__file__).resolve().parents[1] / "terraform" / "generated" / "kubeconfig"),
+                str(Path(__file__).resolve().parents[2] / "ansible" / "generated" / "kubeconfig"),
                 first["kubeconfig_path"],
             )
             self.assertNotIn("UNRELATED_TOKEN", first)

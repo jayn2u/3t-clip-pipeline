@@ -20,7 +20,7 @@ def main() -> None:
     parser.add_argument(
         "--output",
         type=Path,
-        default=REPOSITORY_ROOT / "kubeflow/generated/rendered.yaml",
+        default=REPOSITORY_ROOT / "generated/rendered.yaml",
     )
     parser.add_argument(
         "--approve-digest",
