@@ -1,12 +1,17 @@
 resource "kubernetes_storage_class" "local_cache" {
   metadata {
-    name = "labclip-local-cache"
+    name = local.cache_storage_class_name
+    labels = {
+      "labclip.io/iac-stack" = local.iac_stack_name
+    }
   }
 
   storage_provisioner    = "kubernetes.io/no-provisioner"
   volume_binding_mode    = "WaitForFirstConsumer"
   reclaim_policy         = "Retain"
   allow_volume_expansion = false
+
+  depends_on = [terraform_data.ownership_guard]
 }
 
 resource "kubernetes_persistent_volume" "cache" {

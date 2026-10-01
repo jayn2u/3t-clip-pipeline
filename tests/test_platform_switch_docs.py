@@ -15,6 +15,10 @@ class PlatformSwitchDocumentationTests(unittest.TestCase):
         readme = (REPO_ROOT / "kubeflow" / "README.md").read_text(encoding="utf-8")
         self.assertIn("before applying the Argo stack", readme)
 
+    def test_root_readme_names_both_guarded_objects(self) -> None:
+        readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+        self.assertIn("`labclip-local-cache` StorageClass", readme)
+
 
 if __name__ == "__main__":
     unittest.main()

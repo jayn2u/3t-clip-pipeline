@@ -120,6 +120,23 @@ class KubeflowStackIndependenceTests(unittest.TestCase):
             with self.subTest(moved=moved):
                 self.assertIn(moved, section.group(1))
 
+    def test_ownership_guard_also_covers_the_cache_storage_class(self) -> None:
+        guard = (TERRAFORM_ROOT / "ownership_guard.tf").read_text(encoding="utf-8")
+        self.assertIn('data "kubernetes_resources" "ownership_storage_class"', guard)
+        self.assertRegex(guard, r'cache_storage_class_name\s*=\s*"labclip-local-cache"')
+        self.assertIn(
+            'try(sc.metadata.labels["labclip.io/iac-stack"], local.iac_stack_name) != local.iac_stack_name',
+            guard,
+        )
+        storage = (TERRAFORM_ROOT / "storage.tf").read_text(encoding="utf-8")
+        self.assertIn("name = local.cache_storage_class_name", storage)
+        self.assertIn('"labclip.io/iac-stack" = local.iac_stack_name', storage)
+        self.assertIn("terraform_data.ownership_guard", storage)
+
+    def test_terraform_readme_describes_the_storage_class_guard(self) -> None:
+        readme = (TERRAFORM_ROOT / "README.md").read_text(encoding="utf-8")
+        self.assertRegex(readme, r"ownership_guard\.tf.*StorageClass")
+
 
 if __name__ == "__main__":
     unittest.main()
