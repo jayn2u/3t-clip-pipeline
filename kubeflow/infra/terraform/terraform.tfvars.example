@@ -5,4 +5,4 @@ enable_tailscale              = false
 tailscale_oauth_client_id     = ""
 tailscale_oauth_client_secret = ""
 
-kubeconfig_path = "../../ansible/generated/kubeconfig"
+kubeconfig_path = "../../../ansible/generated/kubeconfig"

@@ -3,8 +3,8 @@ import unittest
 from pathlib import Path
 
 
-STACK_ROOT = Path(__file__).resolve().parents[1]
-TERRAFORM_ROOT = STACK_ROOT / "terraform"
+STACK_ROOT = Path(__file__).resolve().parents[2]
+TERRAFORM_ROOT = Path(__file__).resolve().parents[1] / "terraform"
 CODE_SUFFIXES = {".tf", ".py", ".sh"}
 OTHER_STACK_PATH = re.compile(r"(\.\./)+argo/|(^|[\s\"'=(])argo/(terraform|scripts|tests)")
 

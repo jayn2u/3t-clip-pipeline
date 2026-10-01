@@ -9,15 +9,14 @@ argo/terraform/.terraform.tfstate.lock.info
 argo/terraform/terraform.tfvars
 argo/terraform/*.auto.tfvars.json
 
-kubeflow/terraform/.terraform/
-kubeflow/terraform/terraform.tfstate
-kubeflow/terraform/terraform.tfstate.backup
-kubeflow/terraform/terraform.tfstate.*.backup
-kubeflow/terraform/.terraform.tfstate.lock.info
-kubeflow/terraform/terraform.tfvars
-kubeflow/terraform/*.auto.tfvars.json
-kubeflow/generated/
-kubeflow/overlays/labclip/generated/
+kubeflow/infra/terraform/.terraform/
+kubeflow/infra/terraform/terraform.tfstate
+kubeflow/infra/terraform/terraform.tfstate.backup
+kubeflow/infra/terraform/terraform.tfstate.*.backup
+kubeflow/infra/terraform/.terraform.tfstate.lock.info
+kubeflow/infra/terraform/terraform.tfvars
+kubeflow/infra/terraform/*.auto.tfvars.json
+kubeflow/platform/generated/
 
 __pycache__/
 *.py[cod]
