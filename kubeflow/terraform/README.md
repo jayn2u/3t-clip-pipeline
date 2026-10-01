@@ -1,0 +1,217 @@
+# Terraform — cluster resource layer
+
+Terraform owns resources inside the Kubernetes API. Ansible prepares the
+hosts, k3s, NVIDIA runtime, and local directories; Terraform installs the GPU
+device plugin, local cache volumes, MinIO, Kubeflow run-namespace bindings,
+Tailscale, and pipeline Secrets. This is the Kubeflow stack's Terraform root; the
+Argo stack has its own root under `argo/terraform`.
+
+## Apply
+
+From the repository root, prepare the private inputs once:
+
+```bash
+python3 kubeflow/scripts/prepare_terraform_inputs.py
+```
+
+Terraform continues to load the existing MinIO root credentials from
+`terraform.tfvars`. The helper reads only the `ghcr.io` login from
+`~/.docker/config.json`, and only the `WANDB_API_KEY`, `WANDB_ENTITY`, and
+`WANDB_PROJECT` entries from `/mnt/data/lab_clip/env/.env`. It creates stable
+non-root pipeline and researcher MinIO credentials the first time it runs and
+keeps them in `terraform.generated.auto.tfvars.json` with mode `0600`. The
+generated file is ignored by Git. Re-running the helper keeps the MinIO user
+identities stable and points Terraform at the Ansible-generated
+`ansible/generated/kubeconfig`.
+
+For a generated credential file created before the current helper, repair only
+secret values that begin with a dash by running
+`python3 kubeflow/scripts/prepare_terraform_inputs.py --repair-leading-dash-secrets`.
+This keeps all safe credentials unchanged and is repeatable. The bootstrap CLI
+passes MinIO user secrets as command arguments, where a leading dash is parsed
+as an option; newly generated secret values use an alphanumeric first
+character.
+
+Then run Terraform and bootstrap the stores:
+
+```bash
+cd kubeflow/terraform
+terraform init
+terraform plan
+terraform apply
+```
+
+Terraform calls the reusable LabCLIP CLI after both MinIO deployments, Services,
+and Secrets are ready. It creates the pipeline and researcher users, scoped
+policies, and required buckets: `lab-code` for code snapshots, and `lab-data`,
+`lab-runs`, and `argo-artifacts` for datasets and run artifacts. The core
+Kubernetes Services remain `ClusterIP`; the code store alone uses host port
+`3910` bound to `127.0.0.1` for the local submitter. To retry only the
+idempotent bootstrap after a transient failure, run
+`terraform apply -replace=terraform_data.minio_bootstrap`.
+
+The bootstrap requires MinIO Client `RELEASE.2025-08-13T08-35-41Z` with SHA256
+`01f866e9c5f9b87c2b09116fa5d7c06695b106242d829a8bb32990c00312e891`. Put that
+verified executable on `PATH`, or set `LABCLIP_MC_PATH` to its path before
+running Terraform. The helper passes the selected client to LabCLIP, which
+checks both its release and checksum. The pinned download URL currently returns
+HTTP 410; a matching local binary is required until that source is available
+again.
+
+Tailscale is disabled by default and needs no OAuth credentials unless
+`enable_tailscale = true` is selected explicitly. When enabled, the plan checks
+that both OAuth values are non-empty before creating the Operator Secret. Keep
+the values in the ignored private Terraform inputs; do not pass them as
+`-var` arguments.
+
+For the Kubeflow PoC, Terraform owns the optional Operator Helm release and its
+OAuth Secret. The Kustomize overlay owns `Ingress/istio-system/kubeflow-tailnet`.
+The Istio gateway remains a `ClusterIP` Service, and the Ingress forwards only
+to its HTTP port 80 through Tailscale HTTPS. No Terraform resource manages the
+Kubeflow Ingress.
+
+Before setting `enable_tailscale = true`, inspect the current tailnet Access
+Controls policy and verify the intended audience can reach only TCP 443 on the
+Operator's proxy tag. Confirm `tag:k8s-operator` owns `tag:k8s`, and confirm the
+OAuth client has the required Service, Device Core, and Auth Key write scopes
+with the Operator tag. Preserve unrelated grants and do not widen the current
+audience automatically. Terraform does not update tailnet policy. The existing
+LabCLIP Tailscale runbook is the command-level reference for its policy and
+OAuth prerequisites.
+
+The current Operator chart default is `1.76.1`; LabCLIP's optional-access
+runbook documents `1.98.4`. Compare the existing release and review the plan
+before enabling Terraform management. Do not adopt, replace, or downgrade an
+existing release without reconciling its ownership and the version difference.
+
+## Cluster contract
+
+| Resource | Contract |
+|---|---|
+| MinIO code store | Namespace `argo`, secret `minio-code-secret`, path `/mnt/data/minio-code`, pinned Community image, ClusterIP service, loopback port `3910` |
+| MinIO ML-assets store | Namespace `argo`, secret `minio-ml-assets-secret`, path `/data/jayn2u/minio`, ClusterIP service |
+| Cache storage | `labclip-local-cache`, retained local PVs and one claim per PV in the active LabCLIP run namespace |
+| NVIDIA GPU support | Device plugin chart `0.19.3`; the k3s-created `RuntimeClass/nvidia` remains Ansible's runtime integration output |
+| Pipeline credentials | `ghcr-secret`, `ghcr-pull-secret`, `wandb-secret`, MinIO pipeline and researcher secrets |
+
+The local PV reclaim policy is `Retain`. Destroying Terraform-managed
+Kubernetes resources does not delete the cache directories or MinIO object
+data. MinIO uses the canonical existing data roots above; old data directories
+are not referenced or cleaned up by Terraform.
+
+## Kubeflow run bindings and retained cache PV handoff
+
+Keep `enable_kubeflow_run_bindings = false` while applying the Kubeflow
+foundation. This stage creates the local PVs without run claims and retains their
+host data. If the Argo stack was deployed before, destroy it first; its claims leave
+the PVs `Released` with a stale `claimRef`, which the checks below cover. Before enabling the run bindings, set
+`labclip_run_namespace` to the actual Kubeflow Profile namespace. It must differ
+from `argo`, where MinIO and the source pipeline Secrets remain installed.
+
+Stage two also installs a Kubernetes 1.36 `MutatingAdmissionPolicy` and its
+binding. The API is stable in Kubernetes 1.36, and a policy requires a binding
+before it takes effect ([policy guide](https://v1-36.docs.kubernetes.io/docs/reference/access-authn-authz/mutating-admission-policy/), [v1 API reference](https://v1-36.docs.kubernetes.io/docs/reference/kubernetes-api/admissionregistration/mutating-admission-policy-v1/)). The CEL rules match only
+CREATE requests for core/v1 Pods in the configured run namespace that request
+`nvidia.com/gpu` and omit `spec.runtimeClassName`. They set `runtimeClassName`
+to `nvidia` with an apply configuration; an explicitly selected RuntimeClass is
+left intact. CEL evaluation errors fail admission for matching requests. The
+policy is cluster-scoped, so cluster administrators can change or remove it;
+its binding is enabled only with Kubeflow stage two, and its matching rules
+limit its Pod effect to GPU workloads in the Profile namespace.
+
+Kubeflow stage two reads each PV from the Kubernetes API before creating any
+run claim or copied Secret. The plan-time guard accepts an unclaimed PV in
+`Available`, or a PV in `Bound` whose claim name and namespace match the
+configured Kubeflow claim. It rejects `Released` PVs, stale claim references,
+changed local paths, and node-affinity mismatches. It never patches a PV. The
+additional `confirm_kubeflow_cache_pv_rebind` input defaults to `false` and
+must be set to `true` only after completing the checks below.
+
+Stop workloads using the cache before beginning. Record the current host-data
+inventory fingerprints and inspect the PVCs and PVs before switching modes:
+
+```bash
+ssh vis-lab 'sudo find /mnt/data/labclip-cache -xdev -type f -printf "%P\t%s\t%T@\n" | LC_ALL=C sort | sha256sum'
+ssh ubuntu 'sudo find /data/jayn2u/labclip-cache -xdev -type f -printf "%P\t%s\t%T@\n" | LC_ALL=C sort | sha256sum'
+kubectl -n argo get pvc labclip-cache-vis-lab labclip-cache-ubuntu -o yaml
+kubectl get pv labclip-cache-vis-lab labclip-cache-ubuntu -o yaml
+```
+
+Apply Kubeflow stage one with run bindings disabled, then verify that no old or
+target-namespace claim remains, that the PVs have the expected local paths and
+node affinity, and that both host-data fingerprints still match:
+
+```bash
+LABCLIP_RUN_NAMESPACE="replace-with-profile-namespace"
+kubectl -n argo get pvc labclip-cache-vis-lab labclip-cache-ubuntu --ignore-not-found -o yaml
+kubectl -n "$LABCLIP_RUN_NAMESPACE" get pvc labclip-cache-vis-lab labclip-cache-ubuntu --ignore-not-found -o yaml
+kubectl get pv labclip-cache-vis-lab labclip-cache-ubuntu -o yaml
+ssh vis-lab 'sudo find /mnt/data/labclip-cache -xdev -type f -printf "%P\t%s\t%T@\n" | LC_ALL=C sort | sha256sum'
+ssh ubuntu 'sudo find /data/jayn2u/labclip-cache -xdev -type f -printf "%P\t%s\t%T@\n" | LC_ALL=C sort | sha256sum'
+```
+
+If a PV is `Released`, first confirm its `claimRef` names the removed `argo`
+PVC, both old and target PVCs are absent, the node affinity and local path are
+unchanged, and the host-data fingerprints match. Only then clear that exact
+stale reference; repeat for the other PV only if it independently meets the
+same checks:
+
+```bash
+PV_NAME=labclip-cache-vis-lab
+kubectl patch pv "$PV_NAME" --type=json -p='[{"op":"remove","path":"/spec/claimRef"}]'
+kubectl get pv "$PV_NAME" -o yaml
+```
+
+Set `PV_NAME` to exactly one PV that passed all the checks. Run the command
+again for the other PV only after separately verifying that PV.
+
+After a patch, confirm the PV is `Available`, has no `claimRef`, retains its
+expected `spec.local.path` and node affinity, and the host-data fingerprints
+still match. Do not patch a `Bound` PV or a PV whose old claim, data, path, or
+node ownership is uncertain. The provider preflight rejects `Released` even
+when its stale claim name happens to match the new namespace and PVC name.
+
+Only after those checks, set
+`enable_kubeflow_run_bindings = true`,
+`confirm_kubeflow_cache_pv_rebind = true`, and the distinct Profile namespace;
+then inspect `terraform plan` before applying. On a fresh cluster, confirm the
+PVs are `Available` with no `claimRef` and verify the same paths, affinity, and
+host data before setting the acknowledgement. If `nodes` or cache PV names are
+customized, use those configured names and paths in every command above.
+
+## Drift and existing installations
+
+Always inspect `terraform plan` before applying. If a resource exists from a
+separate manual installation, reconcile its ownership and state before apply;
+do not import or replace it blindly.
+
+## Teardown
+
+Terraform does not remove the Kustomize-applied Kubeflow distribution. Before destroying the resource layer, remove that distribution through the reviewed procedure in [`../README.md`](../README.md#teardown-boundary).
+
+Then remove the resource layer before the host layer:
+
+```bash
+terraform -chdir=kubeflow/terraform plan -destroy
+terraform -chdir=kubeflow/terraform destroy
+cd ansible
+ansible-playbook playbooks/teardown.yml -e confirm_teardown=yes
+```
+
+Supply the site's usual Ansible privilege-escalation authentication. The host
+teardown removes the configured K3s state directories while preserving MinIO
+and cache directories. Verify services, listeners, Terraform state, and retained
+data after teardown; see the dated record under `docs/validation/`.
+
+## File map
+
+| File | Owns |
+|---|---|
+| `namespace.tf` | `argo` namespace labelled with `labclip.io/iac-stack=kubeflow` |
+| `ownership_guard.tf` | Plan-time guard that fails when another stack owns the `argo` namespace |
+| `outputs.tf` | Namespace, MinIO service, and cache volume outputs |
+| `storage.tf` | Local cache StorageClass, PVs, and PVCs |
+| `kubeflow_integration.tf` | Kubeflow run-namespace gate, PV preflight, scoped run Secrets, and stage-two GPU runtime admission |
+| `minio.tf` | MinIO deployments/services and pipeline Secrets |
+| `nvidia_device_plugin.tf` | NVIDIA device plugin plus its NFD/GFD components |
+| `tailscale.tf` | Optional Tailscale operator |

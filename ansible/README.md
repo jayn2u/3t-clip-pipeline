@@ -11,8 +11,8 @@ If a change is "install/configure something on a host" -> Ansible.
 If a change is "create/update a Kubernetes object" -> Terraform.
 
 The handoff point between the two layers is a kubeconfig file: the `k3s_server`
-role writes it to `terraform/generated/kubeconfig` with mode `0600` after the
-control plane comes up, and Terraform's provider blocks read from that path.
+role writes it to `ansible/generated/kubeconfig` with mode `0600` after the
+control plane comes up, and both stacks' Terraform provider blocks read from that path.
 Nothing in this directory talks to the Kubernetes API directly.
 
 ## Usage

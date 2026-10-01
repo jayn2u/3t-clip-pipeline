@@ -15,7 +15,7 @@ class AnsibleTeardownTests(unittest.TestCase):
     def test_delegated_kubeconfig_cleanup_resolves_playbook_variables(self) -> None:
         ansible_playbook = shutil.which("ansible-playbook")
         self.assertIsNotNone(ansible_playbook, "ansible-playbook must be installed")
-        kubeconfig = REPO_ROOT / "terraform/generated/kubeconfig"
+        kubeconfig = REPO_ROOT / "ansible/generated/kubeconfig"
 
         def signature(path: Path) -> tuple[int, int, int, int, int] | None:
             try:
