@@ -13,7 +13,7 @@ terraform -chdir=argo/terraform apply
 
 `argo/terraform/terraform.tfvars` holds the MinIO root credentials and stays untracked. `prepare_terraform_inputs.py` writes `argo/terraform/terraform.generated.auto.tfvars.json` and points `kubeconfig_path` at `ansible/generated/kubeconfig`.
 
-When this repository is vendored as a submodule of `lab_clip`, set `labclip_workflow_template_path` to the checked-in `pipeline/k8s/generated/labclip-train.yaml` of that checkout.
+When this repository is vendored as a submodule of `lab_clip`, set `labclip_workflow_template_path` to the checked-in `pipeline/argo/generated/labclip-train.yaml` of that checkout.
 
 Tests run from the `argo/` directory so that its own `scripts` package is imported:
 
@@ -21,6 +21,6 @@ Tests run from the `argo/` directory so that its own `scripts` package is import
 uv run --no-project --with bcrypt==4.2.1 --with pyyaml python -m unittest discover -s tests
 ```
 
-Files such as `minio.tf`, `nvidia_device_plugin.tf`, `prepare_terraform_inputs.py`, and `bootstrap_minio.sh` are intentionally duplicated in `kubeflow/`. This stack never reads `kubeflow/`, and the Kubeflow stack never reads this directory.
+Files such as `minio.tf`, `nvidia_device_plugin.tf`, `prepare_terraform_inputs.py`, `bootstrap_minio.sh`, and `minio_bootstrap.py` are intentionally duplicated in `kubeflow/`. This stack never reads `kubeflow/`, and the Kubeflow stack never reads this directory.
 
 Stack state lives in `terraform/` and is untracked. Details of the resources and the MinIO bootstrap are in [`terraform/README.md`](terraform/README.md). The `argo` namespace carries `labclip.io/iac-stack=argo`; if the Kubeflow stack is deployed, destroy it first.

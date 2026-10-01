@@ -40,8 +40,11 @@ terraform plan
 terraform apply
 ```
 
-Terraform calls the reusable LabCLIP CLI after both MinIO deployments, Services,
-and Secrets are ready. It creates the pipeline and researcher users, scoped
+Terraform runs this stack's `scripts/minio_bootstrap.py` after both MinIO
+deployments, Services, and Secrets are ready. The bootstrap uses only the
+Python standard library, `kubectl`, and the MinIO Client; it does not need a
+LabCLIP checkout. Set `LABCLIP_PYTHON` to choose the interpreter, otherwise
+`python3` is used. It creates the pipeline and researcher users, scoped
 policies, and required buckets: `lab-code` for code snapshots, and `lab-data`,
 `lab-runs`, and `argo-artifacts` for datasets and run artifacts. The core
 Kubernetes Services remain `ClusterIP`; the code store alone uses host port
@@ -52,15 +55,14 @@ idempotent bootstrap after a transient failure, run
 The bootstrap requires MinIO Client `RELEASE.2025-08-13T08-35-41Z` with SHA256
 `01f866e9c5f9b87c2b09116fa5d7c06695b106242d829a8bb32990c00312e891`. Put that
 verified executable on `PATH`, or set `LABCLIP_MC_PATH` to its path before
-running Terraform. The helper passes the selected client to LabCLIP, which
-checks both its release and checksum. The pinned download URL currently returns
+running Terraform. The bootstrap checks both its release and checksum. The pinned download URL currently returns
 HTTP 410; a matching local binary is required until that source is available
 again.
 
 If `lab_clip` is not a sibling checkout, set
 `labclip_workflow_template_path` to the checked-in
-`pipeline/k8s/generated/labclip-train.yaml` from that checkout. The default is
-`../../../lab_clip/pipeline/k8s/generated/labclip-train.yaml`, relative to this
+`pipeline/argo/generated/labclip-train.yaml` from that checkout. The default is
+`../../../lab_clip/pipeline/argo/generated/labclip-train.yaml`, relative to this
 Terraform root.
 
 Tailscale is disabled by default and needs no OAuth credentials unless

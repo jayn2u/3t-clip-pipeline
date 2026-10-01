@@ -283,8 +283,7 @@ resource "terraform_data" "minio_bootstrap" {
     command     = "bash \"${path.module}/../scripts/bootstrap_minio.sh\""
     working_dir = path.module
     environment = {
-      KUBECONFIG   = abspath(var.kubeconfig_path)
-      LABCLIP_ROOT = var.labclip_root
+      KUBECONFIG = abspath(var.kubeconfig_path)
     }
   }
 
