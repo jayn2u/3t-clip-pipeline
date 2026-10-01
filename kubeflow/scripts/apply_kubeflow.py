@@ -18,6 +18,8 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 GENERATED_ROOT = REPOSITORY_ROOT / "generated"
 TERRAFORM_ROOT = REPOSITORY_ROOT / "terraform"
 MAX_APPLY_ATTEMPTS = 6
+FOREIGN_STACK_NAME = "argo"
+OWNER_LABEL_JSONPATH = "{.metadata.labels.labclip\\.io/iac-stack}"
 TERRAFORM_CONSOLE_EXPRESSION = """jsonencode({
   argo_namespace = var.argo_namespace,
   labclip_run_namespace = var.labclip_run_namespace,
@@ -218,6 +220,26 @@ def _run(command: list[str], *, timeout: int = 180) -> subprocess.CompletedProce
         raise KubeflowApplyError(f"Command timed out: {' '.join(command)}") from exc
     except OSError as exc:
         raise KubeflowApplyError(f"Unable to execute {command[0]}.") from exc
+
+
+def require_not_owned_by_argo_stack(argo_namespace: str) -> None:
+    result = _run(
+        [
+            "kubectl",
+            "get",
+            "namespace",
+            argo_namespace,
+            "--ignore-not-found",
+            "-o",
+            f"jsonpath={OWNER_LABEL_JSONPATH}",
+        ],
+        timeout=30,
+    )
+    if result.returncode == 0 and result.stdout.strip() == FOREIGN_STACK_NAME:
+        raise KubeflowApplyError(
+            f"The {argo_namespace} namespace belongs to the Argo IaC stack; "
+            "remove that stack before applying Kubeflow."
+        )
 
 
 def _result_text(result: subprocess.CompletedProcess) -> str:
@@ -456,6 +478,12 @@ def main() -> None:
     parser.add_argument("--terraform-var", action="append", default=[])
     args = parser.parse_args()
     try:
+        owners = terraform_owner_inventory(
+            args.terraform_dir,
+            variable_files=args.terraform_var_file,
+            variables=args.terraform_var,
+        )
+        require_not_owned_by_argo_stack(owners.argo_namespace)
         apply_distribution(
             args.manifest,
             args.receipt,

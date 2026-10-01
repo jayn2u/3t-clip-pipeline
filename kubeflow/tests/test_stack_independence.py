@@ -59,6 +59,25 @@ class KubeflowStackIndependenceTests(unittest.TestCase):
         self.assertIn('"labclip.io/iac-stack" = local.iac_stack_name', namespace)
         self.assertIn("terraform_data.ownership_guard", namespace)
 
+    def test_terraform_readme_describes_only_this_stack(self) -> None:
+        readme = (TERRAFORM_ROOT / "README.md").read_text(encoding="utf-8")
+        for forbidden in (
+            "smoke_labclip_runtime",
+            "smoke_cleanup_markers",
+            "argo_workflows.tf",
+            "rbac.tf",
+            "platform_mode",
+            "kubectl -n argo get workflow",
+            "fullnameOverride",
+        ):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, readme)
+        self.assertIn("ownership_guard.tf", readme)
+
+    def test_stack_readme_states_that_shared_files_are_duplicated(self) -> None:
+        readme = (STACK_ROOT / "README.md").read_text(encoding="utf-8")
+        self.assertIn("intentionally duplicated", readme)
+
 
 if __name__ == "__main__":
     unittest.main()

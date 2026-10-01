@@ -14,6 +14,8 @@ Terraform owns the Operator and its OAuth Secret. The Kustomize overlay owns
 Terraform. The Istio ingress gateway stays `ClusterIP`. No layer opens a public
 NodePort, public LoadBalancer, Tailscale Funnel, or host listener.
 
+Files such as `minio.tf`, `nvidia_device_plugin.tf`, `prepare_terraform_inputs.py`, and `bootstrap_minio.sh` are intentionally duplicated from the Argo stack. This stack never reads `argo/`, and the Argo stack never reads this directory.
+
 ## Preconditions
 
 Run commands from the IaC repository root and use the existing private Ansible
@@ -232,3 +234,5 @@ reviewed platform resources. Preserve `/mnt/data/minio-code`,
 `/data/jayn2u/minio`, `/mnt/data/labclip-cache`, and
 `/data/jayn2u/labclip-cache`; do not use a broad `kubectl delete all`,
 `kustomize delete`, or unreviewed `terraform destroy` as a shortcut.
+
+To switch to the Argo stack, finish this reviewed teardown first, then destroy the Terraform stack with `terraform -chdir=kubeflow/terraform destroy`, and only then apply `argo/terraform`. `terraform destroy` alone does not remove the Kustomize-applied distribution, and its Argo CRDs would collide with the Argo stack's Helm release. The ownership guard cannot detect this, so complete the teardown before applying the Argo stack. The same ownership check runs in `kubeflow/scripts/apply_kubeflow.py` and `check_kubeflow.py` to stop them from running against a cluster the Argo stack owns.

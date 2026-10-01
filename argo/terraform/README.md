@@ -145,7 +145,8 @@ data after teardown; see the dated record under `docs/validation/`.
 
 | File | Owns |
 |---|---|
-| `namespace.tf` | `argo` namespace |
+| `namespace.tf` | `argo` namespace labelled with `labclip.io/iac-stack=argo` |
+| `ownership_guard.tf` | Plan-time guard that fails when another stack owns the `argo` namespace |
 | `rbac.tf` | LabCLIP runner ServiceAccount and ClusterRole binding |
 | `storage.tf` | Local cache StorageClass, PVs, and PVCs |
 | `minio.tf` | MinIO deployments/services and pipeline Secrets |

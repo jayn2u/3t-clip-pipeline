@@ -65,6 +65,14 @@ class ArgoStackIndependenceTests(unittest.TestCase):
         self.assertIn('"labclip.io/iac-stack" = local.iac_stack_name', namespace)
         self.assertIn("terraform_data.ownership_guard", namespace)
 
+    def test_terraform_readme_lists_the_ownership_guard(self) -> None:
+        readme = (TERRAFORM_ROOT / "README.md").read_text(encoding="utf-8")
+        self.assertIn("ownership_guard.tf", readme)
+
+    def test_stack_readme_states_that_shared_files_are_duplicated(self) -> None:
+        readme = (STACK_ROOT / "README.md").read_text(encoding="utf-8")
+        self.assertIn("intentionally duplicated", readme)
+
 
 if __name__ == "__main__":
     unittest.main()

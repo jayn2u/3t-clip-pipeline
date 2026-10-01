@@ -6,11 +6,13 @@ import subprocess
 from typing import Sequence
 
 from apply_kubeflow import (
+    KubeflowApplyError,
     TERRAFORM_ROOT,
     TerraformOwnerInventory,
     _read_documents,
     _validate_terraform_ownership,
     _verify_approved,
+    require_not_owned_by_argo_stack,
     terraform_owner_inventory,
 )
 from prepare_kubeflow_overlay import RenderApprovalError
@@ -190,6 +192,12 @@ def main() -> None:
     if args.drift_only and args.readiness_only:
         parser.error("--drift-only and --readiness-only cannot be combined.")
     try:
+        owners = terraform_owner_inventory(
+            args.terraform_dir,
+            variable_files=args.terraform_var_file,
+            variables=args.terraform_var,
+        )
+        require_not_owned_by_argo_stack(owners.argo_namespace)
         if not args.readiness_only:
             report = check_distribution(
                 args.manifest,
@@ -214,7 +222,7 @@ def main() -> None:
                 for item in report.pending_objects:
                     print(f"  {item}")
                 raise KubeflowCheckError("Kubeflow readiness check failed.")
-    except (KubeflowCheckError, RenderApprovalError, OSError, ValueError) as exc:
+    except (KubeflowApplyError, KubeflowCheckError, RenderApprovalError, OSError, ValueError) as exc:
         parser.exit(2, f"error: {exc}\n")
 
 

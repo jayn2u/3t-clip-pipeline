@@ -878,3 +878,66 @@ class TerraformOwnerInventoryTests(unittest.TestCase):
         )
         approve_render(digest, manifest, receipt, inventory_path, approval)
         self.tools._validate_terraform_ownership(manifest, inventory)
+
+
+class KubeflowStackOwnershipTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tools = load_apply_tools()
+        self.checks = load_check_tools()
+
+    def run_result(self, stdout: str, returncode: int = 0):
+        return mock.Mock(returncode=returncode, stdout=stdout, stderr="")
+
+    def test_refuses_a_namespace_owned_by_the_argo_stack(self) -> None:
+        with mock.patch.object(self.tools.subprocess, "run", return_value=self.run_result("argo\n")):
+            with self.assertRaises(self.tools.KubeflowApplyError) as raised:
+                self.tools.require_not_owned_by_argo_stack("argo")
+        self.assertIn("Argo", str(raised.exception))
+
+    def test_allows_a_namespace_owned_by_the_kubeflow_stack(self) -> None:
+        with mock.patch.object(self.tools.subprocess, "run", return_value=self.run_result("kubeflow")):
+            self.tools.require_not_owned_by_argo_stack("argo")
+
+    def test_allows_a_missing_namespace_or_missing_label(self) -> None:
+        with mock.patch.object(self.tools.subprocess, "run", return_value=self.run_result("")):
+            self.tools.require_not_owned_by_argo_stack("argo")
+
+    def test_reads_the_configured_namespace_label(self) -> None:
+        with mock.patch.object(self.tools.subprocess, "run", return_value=self.run_result("")) as run:
+            self.tools.require_not_owned_by_argo_stack("labclip-runtime")
+        command = run.call_args.args[0]
+        self.assertEqual(["kubectl", "get", "namespace", "labclip-runtime"], command[:4])
+        self.assertIn("--ignore-not-found", command)
+        self.assertIn("jsonpath={.metadata.labels.labclip\\.io/iac-stack}", command)
+
+    def test_apply_cli_checks_ownership_before_applying(self) -> None:
+        owners = default_terraform_owners()
+        with mock.patch.object(sys, "argv", ["apply_kubeflow.py"]):
+            with mock.patch.object(self.tools, "terraform_owner_inventory", return_value=owners):
+                with mock.patch.object(
+                    self.tools,
+                    "require_not_owned_by_argo_stack",
+                    side_effect=self.tools.KubeflowApplyError("owned by Argo"),
+                ) as guard:
+                    with mock.patch.object(self.tools, "apply_distribution") as apply:
+                        with self.assertRaises(SystemExit) as raised:
+                            self.tools.main()
+        self.assertEqual(2, raised.exception.code)
+        guard.assert_called_once_with(owners.argo_namespace)
+        apply.assert_not_called()
+
+    def test_check_cli_checks_ownership_before_checking(self) -> None:
+        owners = default_terraform_owners()
+        with mock.patch.object(sys, "argv", ["check_kubeflow.py"]):
+            with mock.patch.object(self.checks, "terraform_owner_inventory", return_value=owners):
+                with mock.patch.object(
+                    self.checks,
+                    "require_not_owned_by_argo_stack",
+                    side_effect=self.tools.KubeflowApplyError("owned by Argo"),
+                ) as guard:
+                    with mock.patch.object(self.checks, "check_distribution") as check:
+                        with self.assertRaises(SystemExit) as raised:
+                            self.checks.main()
+        self.assertEqual(2, raised.exception.code)
+        guard.assert_called_once_with(owners.argo_namespace)
+        check.assert_not_called()
