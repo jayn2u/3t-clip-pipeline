@@ -1,8 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-labclip_root="${LABCLIP_ROOT:-/mnt/data/lab_clip}"
-labclip_script="${labclip_root}/pipeline/scripts/minio_bootstrap.py"
 infra_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 if [[ -z "${KUBECONFIG:-}" ]]; then
   KUBECONFIG="${infra_root}/../../ansible/generated/kubeconfig"
@@ -14,19 +12,7 @@ if [[ ! -r "${KUBECONFIG}" ]]; then
   exit 1
 fi
 
-if [[ -n "${LABCLIP_PYTHON:-}" ]]; then
-  labclip_python="${LABCLIP_PYTHON}"
-elif [[ -x "${labclip_root}/.venv/bin/python" ]]; then
-  labclip_python="${labclip_root}/.venv/bin/python"
-else
-  labclip_python="python3"
-fi
-
-if [[ ! -f "${labclip_script}" ]]; then
-  printf 'LabCLIP MinIO bootstrap CLI not found: %s\n' "${labclip_script}" >&2
-  printf 'Set LABCLIP_ROOT to the pipeline checkout.\n' >&2
-  exit 1
-fi
+bootstrap_python="${LABCLIP_PYTHON:-python3}"
 
 mc_path="${LABCLIP_MC_PATH:-}"
 if [[ -z "${mc_path}" ]]; then
@@ -42,7 +28,7 @@ if [[ -n "${mc_path}" ]]; then
 fi
 
 for store in code ml-assets; do
-  "${labclip_python}" "${labclip_script}" \
+  "${bootstrap_python}" "${infra_root}/scripts/minio_bootstrap.py" \
     --store "${store}" \
     --namespace argo \
     "${mc_args[@]}"

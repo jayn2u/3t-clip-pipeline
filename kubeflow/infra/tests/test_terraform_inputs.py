@@ -13,9 +13,6 @@ class TerraformInputTests(unittest.TestCase):
     def test_bootstrap_prefers_a_local_mc_and_passes_it_to_both_stores(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             directory = Path(temporary_directory)
-            labclip_root = directory / "lab_clip"
-            (labclip_root / "pipeline" / "scripts").mkdir(parents=True)
-            (labclip_root / "pipeline" / "scripts" / "minio_bootstrap.py").touch()
             executable_dir = directory / "bin"
             executable_dir.mkdir()
             local_mc = executable_dir / "mc"
@@ -36,7 +33,6 @@ class TerraformInputTests(unittest.TestCase):
             environment = os.environ.copy()
             environment.update(
                 {
-                    "LABCLIP_ROOT": str(labclip_root),
                     "LABCLIP_PYTHON": str(runner),
                     "KUBECONFIG": str(kubeconfig),
                     "PATH": f"{executable_dir}:{environment['PATH']}",

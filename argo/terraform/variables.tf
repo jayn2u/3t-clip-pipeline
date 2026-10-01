@@ -25,13 +25,7 @@ variable "argo_workflows_chart_version" {
 variable "labclip_workflow_template_path" {
   description = "Path to the generated LabCLIP WorkflowTemplate YAML, relative to the Terraform root."
   type        = string
-  default     = "../../../lab_clip/pipeline/k8s/generated/labclip-train.yaml"
-}
-
-variable "labclip_root" {
-  description = "LabCLIP checkout containing the reusable MinIO bootstrap CLI and Python environment."
-  type        = string
-  default     = "/mnt/data/lab_clip"
+  default     = "../../../lab_clip/pipeline/argo/generated/labclip-train.yaml"
 }
 
 variable "tailscale_operator_chart_version" {

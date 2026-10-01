@@ -39,12 +39,6 @@ variable "confirm_kubeflow_cache_pv_rebind" {
   default     = false
 }
 
-variable "labclip_root" {
-  description = "LabCLIP checkout containing the reusable MinIO bootstrap CLI and Python environment."
-  type        = string
-  default     = "/mnt/data/lab_clip"
-}
-
 variable "tailscale_operator_chart_version" {
   description = "Pinned tailscale-operator Helm chart version."
   type        = string
