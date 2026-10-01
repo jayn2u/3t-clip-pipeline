@@ -52,6 +52,19 @@ class ArgoStackIndependenceTests(unittest.TestCase):
             with self.subTest(file=str(path.relative_to(STACK_ROOT))):
                 self.assertIsNone(OTHER_STACK_PATH.search(path.read_text(encoding="utf-8")))
 
+    def test_ownership_guard_names_this_stack(self) -> None:
+        guard = (TERRAFORM_ROOT / "ownership_guard.tf").read_text(encoding="utf-8")
+        self.assertRegex(guard, r'iac_stack_name\s*=\s*"argo"')
+        self.assertIn('data "kubernetes_resources" "ownership_namespace"', guard)
+        self.assertIn(
+            'try(ns.metadata.labels["labclip.io/iac-stack"], local.iac_stack_name) != local.iac_stack_name',
+            guard,
+        )
+        self.assertIn("precondition", guard)
+        namespace = (TERRAFORM_ROOT / "namespace.tf").read_text(encoding="utf-8")
+        self.assertIn('"labclip.io/iac-stack" = local.iac_stack_name', namespace)
+        self.assertIn("terraform_data.ownership_guard", namespace)
+
 
 if __name__ == "__main__":
     unittest.main()
