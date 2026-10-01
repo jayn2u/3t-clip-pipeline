@@ -16,6 +16,19 @@ NodePort, public LoadBalancer, Tailscale Funnel, or host listener.
 
 Files such as `minio.tf`, `nvidia_device_plugin.tf`, `prepare_terraform_inputs.py`, and `bootstrap_minio.sh` are intentionally duplicated from the Argo stack. This stack never reads `argo/`, and the Argo stack never reads this directory.
 
+## Migrating an existing checkout
+
+Earlier checkouts kept Kubeflow's files at different paths. Git moves tracked files, but untracked private files stay behind, and the old paths are no longer ignored. Move them before running anything, then delete the empty old directories.
+
+| Old path | New path |
+|---|---|
+| `kubeflow/terraform/terraform.tfstate`, `terraform.tfvars`, `*.auto.tfvars.json`, and `.terraform/` | `kubeflow/infra/terraform/` |
+| `kubeflow/generated/` | `kubeflow/platform/generated/` |
+| `kubeflow/overlays/labclip/generated/` | `kubeflow/platform/generated/` |
+| `terraform/generated/kubeconfig` | `ansible/generated/kubeconfig` |
+
+`mv` keeps each file's mode, which matters because the render step rejects site patches that are not mode 0600. You can also regenerate the identity and site patches with `kubeflow/platform/scripts/prepare.py` and rewrite the kubeconfig by running the Ansible `site.yml` playbook again.
+
 ## Preconditions
 
 Run commands from the IaC repository root and use the existing private Ansible

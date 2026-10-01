@@ -1,8 +1,10 @@
 import importlib.util
+import io
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 PLATFORM_ROOT = Path(__file__).resolve().parents[1]
@@ -20,7 +22,16 @@ def load(name: str):
     return module
 
 
-class PlatformScriptPathTests(unittest.TestCase):
+class ScriptTestCase(unittest.TestCase):
+    def setUp(self) -> None:
+        modules = mock.patch.dict(sys.modules)
+        modules.start()
+        self.addCleanup(modules.stop)
+        original_path = list(sys.path)
+        self.addCleanup(lambda: sys.path.__setitem__(slice(None), original_path))
+
+
+class PlatformScriptPathTests(ScriptTestCase):
     def test_apply_defaults_point_at_platform_and_infra(self) -> None:
         apply = load("apply")
         self.assertEqual(PLATFORM_ROOT / "generated", apply.GENERATED_ROOT)
@@ -63,6 +74,26 @@ class PlatformScriptPathTests(unittest.TestCase):
         load("apply")
         infra_scripts = str(PLATFORM_ROOT.parent / "infra" / "scripts")
         self.assertNotIn(infra_scripts, sys.path)
+
+
+class ScriptIsolationTests(unittest.TestCase):
+    def test_loading_scripts_does_not_leak_modules_or_path_entries(self) -> None:
+        class Inner(ScriptTestCase):
+            def test_load(self) -> None:
+                load("apply")
+                load("check")
+                load("prepare")
+
+        modules_before = dict(sys.modules)
+        path_before = list(sys.path)
+        result = unittest.TextTestRunner(stream=io.StringIO()).run(
+            unittest.defaultTestLoader.loadTestsFromTestCase(Inner)
+        )
+        self.assertTrue(result.wasSuccessful())
+        self.assertEqual(path_before, sys.path)
+        for name in ("apply", "check", "prepare"):
+            with self.subTest(module=name):
+                self.assertIs(modules_before.get(name), sys.modules.get(name))
 
 
 if __name__ == "__main__":
