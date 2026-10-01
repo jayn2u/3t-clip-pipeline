@@ -1,36 +1,13 @@
 # 3T-CLIP Pipeline Infrastructure
 
-Infrastructure-as-code for the LabCLIP k3s cluster (`vis-lab` control-plane+worker,
-`ubuntu` worker), split across host provisioning, cluster foundations, and a pinned
-Kubeflow distribution:
+Infrastructure-as-code for the LabCLIP k3s cluster (`vis-lab` control-plane+worker, `ubuntu` worker). Two independent platform stacks share one host layer. Deploy only one stack on the cluster at a time.
 
-1. **[`ansible/`](ansible/)** — node/OS layer. Installs k3s, the NVIDIA container
-   runtime, and prepares local storage directories. Produces a kubeconfig.
-2. **[`terraform/`](terraform/)** — cluster foundation and LabCLIP integration.
-   Consumes that kubeconfig and manages GPU support, retained cache volumes,
-   MinIO, either standalone Argo Workflows or Kubeflow run bindings, pipeline
-   credentials, and the optional Tailscale Operator.
-3. **[`kubeflow/`](kubeflow/)** — pinned Kubeflow Community Distribution
-   26.03.1 overlay plus reviewed apply, drift, readiness, and UI access steps.
-   It owns Kubeflow components and the tailnet-only Ingress; Terraform owns the
-   Tailscale Operator.
+| Directory | Owns |
+|---|---|
+| [`ansible/`](ansible/) | Node and OS layer: k3s, NVIDIA container runtime, local storage directories. Writes the shared kubeconfig to `ansible/generated/kubeconfig`. |
+| [`argo/`](argo/) | Argo Workflows platform: its own Terraform root, scripts, tests, and runbook. |
+| [`kubeflow/`](kubeflow/) | Pinned Kubeflow Community Distribution 26.03.1: its own Terraform root, Kustomize overlay, scripts, tests, and runbook. |
 
-```
-ansible-playbook playbooks/site.yml
-        |
-        v
-terraform Kubeflow foundation
-        |
-        v
-approved Kustomize render and apply
-        |
-        v
-terraform LabCLIP run-namespace bindings
-```
+The stacks do not read each other's files or state. Files such as `minio.tf`, `nvidia_device_plugin.tf`, `prepare_terraform_inputs.py`, and `bootstrap_minio.sh` are intentionally duplicated in both stacks. Each stack labels the `argo` namespace with `labclip.io/iac-stack`, and a plan fails when the other stack owns it. To switch platforms, destroy the deployed stack, then apply the other.
 
-Each directory's README documents its own scope boundary and drift-checking
-commands. For the full Kubeflow install, repeat apply, read-only drift and
-readiness checks, and loopback/Tailscale access, see [`kubeflow/README.md`](kubeflow/README.md).
-Do not add Kubernetes manifests to `ansible/` or host-provisioning tasks to
-`terraform/`; see [`ansible/README.md`](ansible/README.md) for the host-layer
-contract.
+Do not add Kubernetes manifests to `ansible/` or host-provisioning tasks to a stack's Terraform root; see [`ansible/README.md`](ansible/README.md) for the host-layer contract.

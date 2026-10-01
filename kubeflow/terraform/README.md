@@ -2,15 +2,16 @@
 
 Terraform owns resources inside the Kubernetes API. Ansible prepares the
 hosts, k3s, NVIDIA runtime, and local directories; Terraform installs the GPU
-device plugin, local cache volumes, MinIO, either standalone Argo Workflows or
-Kubeflow run-namespace bindings, RBAC, Tailscale, and pipeline Secrets.
+device plugin, local cache volumes, MinIO, Kubeflow run-namespace bindings,
+Tailscale, and pipeline Secrets. This is the Kubeflow stack's Terraform root; the
+Argo stack has its own root under `argo/terraform`.
 
 ## Apply
 
 From the repository root, prepare the private inputs once:
 
 ```bash
-python3 scripts/prepare_terraform_inputs.py
+python3 kubeflow/scripts/prepare_terraform_inputs.py
 ```
 
 Terraform continues to load the existing MinIO root credentials from
@@ -21,11 +22,11 @@ non-root pipeline and researcher MinIO credentials the first time it runs and
 keeps them in `terraform.generated.auto.tfvars.json` with mode `0600`. The
 generated file is ignored by Git. Re-running the helper keeps the MinIO user
 identities stable and points Terraform at the Ansible-generated
-`terraform/generated/kubeconfig`.
+`ansible/generated/kubeconfig`.
 
 For a generated credential file created before the current helper, repair only
 secret values that begin with a dash by running
-`python3 scripts/prepare_terraform_inputs.py --repair-leading-dash-secrets`.
+`python3 kubeflow/scripts/prepare_terraform_inputs.py --repair-leading-dash-secrets`.
 This keeps all safe credentials unchanged and is repeatable. The bootstrap CLI
 passes MinIO user secrets as command arguments, where a leading dash is parsed
 as an option; newly generated secret values use an alphanumeric first
@@ -34,7 +35,7 @@ character.
 Then run Terraform and bootstrap the stores:
 
 ```bash
-cd terraform
+cd kubeflow/terraform
 terraform init
 terraform plan
 terraform apply
@@ -56,12 +57,6 @@ running Terraform. The helper passes the selected client to LabCLIP, which
 checks both its release and checksum. The pinned download URL currently returns
 HTTP 410; a matching local binary is required until that source is available
 again.
-
-If `lab_clip` is not a sibling checkout, set
-`labclip_workflow_template_path` to the checked-in
-`pipeline/k8s/generated/labclip-train.yaml` from that checkout. The default is
-`../../lab_clip/pipeline/k8s/generated/labclip-train.yaml`, relative to this
-Terraform root.
 
 Tailscale is disabled by default and needs no OAuth credentials unless
 `enable_tailscale = true` is selected explicitly. When enabled, the plan checks
@@ -96,7 +91,6 @@ existing release without reconciling its ownership and the version difference.
 | MinIO code store | Namespace `argo`, secret `minio-code-secret`, path `/mnt/data/minio-code`, pinned Community image, ClusterIP service, loopback port `3910` |
 | MinIO ML-assets store | Namespace `argo`, secret `minio-ml-assets-secret`, path `/data/jayn2u/minio`, ClusterIP service |
 | Cache storage | `labclip-local-cache`, retained local PVs and one claim per PV in the active LabCLIP run namespace |
-| Argo Workflows | In `platform_mode = "argo"` only: chart `1.0.20`, app `v4.0.7`, internal `argo-server` Service, controller watches `argo` |
 | NVIDIA GPU support | Device plugin chart `0.19.3`; the k3s-created `RuntimeClass/nvidia` remains Ansible's runtime integration output |
 | Pipeline credentials | `ghcr-secret`, `ghcr-pull-secret`, `wandb-secret`, MinIO pipeline and researcher secrets |
 
@@ -181,7 +175,7 @@ still match. Do not patch a `Bound` PV or a PV whose old claim, data, path, or
 node ownership is uncertain. The provider preflight rejects `Released` even
 when its stale claim name happens to match the new namespace and PVC name.
 
-Only after those checks, set `platform_mode = "kubeflow"`,
+Only after those checks, set
 `enable_kubeflow_run_bindings = true`,
 `confirm_kubeflow_cache_pv_rebind = true`, and the distinct Profile namespace;
 then inspect `terraform plan` before applying. On a fresh cluster, confirm the
@@ -201,8 +195,8 @@ release is removed.
 From the repository root, use the kubeconfig produced by Ansible:
 
 ```bash
-export KUBECONFIG="$PWD/terraform/generated/kubeconfig"
-ARGO_SERVER= python3 scripts/smoke_labclip_runtime.py --keep-s3-markers
+export KUBECONFIG="$PWD/ansible/generated/kubeconfig"
+ARGO_SERVER= python3 kubeflow/scripts/smoke_labclip_runtime.py --keep-s3-markers
 ```
 
 The smoke uses the actual LabCLIP image on both GPU nodes and checks CUDA,
@@ -217,8 +211,8 @@ Replace the quoted example name below with that exact name:
 ```bash
 labclip_receipt="$(mktemp /tmp/labclip-smoke-receipt.XXXXXX.json)"
 kubectl -n argo get workflow "labclip-runtime-smoke-<id>" -o json > "$labclip_receipt"
-python3 scripts/smoke_labclip_runtime.py --receipt "$labclip_receipt"
-python3 scripts/smoke_cleanup_markers.py "$labclip_receipt"
+python3 kubeflow/scripts/smoke_labclip_runtime.py --receipt "$labclip_receipt"
+python3 kubeflow/scripts/smoke_cleanup_markers.py "$labclip_receipt"
 kubectl delete -f "$labclip_receipt" --wait=true
 ```
 
@@ -232,8 +226,8 @@ to bypass that protection. Review any other research workloads separately.
 Then remove the resource layer before the host layer:
 
 ```bash
-terraform -chdir=terraform plan -destroy
-terraform -chdir=terraform destroy
+terraform -chdir=kubeflow/terraform plan -destroy
+terraform -chdir=kubeflow/terraform destroy
 cd ansible
 ansible-playbook playbooks/teardown.yml -e confirm_teardown=yes
 ```
