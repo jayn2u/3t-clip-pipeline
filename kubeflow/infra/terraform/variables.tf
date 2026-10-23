@@ -192,3 +192,16 @@ variable "wandb_project" {
   type        = string
   sensitive   = true
 }
+
+variable "gpu_node_selector" {
+  description = "Node labels a node must carry before the NVIDIA device plugin offers its GPUs to Kubernetes. Ansible sets the label only when k3s_gpu_offered is true."
+  type        = map(string)
+  default = {
+    "labclip.io/k8s-gpu" = "true"
+  }
+
+  validation {
+    condition     = length(var.gpu_node_selector) > 0
+    error_message = "gpu_node_selector must not be empty; GPUs are offered to Kubernetes only on opted-in nodes."
+  }
+}

@@ -28,6 +28,7 @@ MINIO_CREDENTIAL_FIELDS = (
     "researcher_access_key",
     "researcher_secret_key",
 )
+SUBMODULE_WORKFLOW_TEMPLATE = Path("pipeline") / "argo" / "generated" / "labclip-train.yaml"
 WANDB_FIELDS = {
     "wandb_api_key": "WANDB_API_KEY",
     "wandb_entity": "WANDB_ENTITY",
@@ -267,6 +268,13 @@ def _write_private_json(path: Path, payload: dict[str, Any]) -> None:
             os.unlink(temporary_name)
 
 
+def submodule_workflow_template(root: Path = ROOT) -> Path | None:
+    if len(root.parents) < 3:
+        return None
+    candidate = root.parents[2] / SUBMODULE_WORKFLOW_TEMPLATE
+    return candidate if candidate.is_file() else None
+
+
 def prepare_inputs(
     output_path: Path,
     docker_config_path: Path,
@@ -286,6 +294,9 @@ def prepare_inputs(
 
     result = dict(existing)
     result["kubeconfig_path"] = str(ROOT.parent / "ansible" / "generated" / "kubeconfig")
+    nested_template = submodule_workflow_template()
+    if nested_template is not None:
+        result["labclip_workflow_template_path"] = str(nested_template)
     result["minio_credentials"] = stable_minio_credentials(existing.get("minio_credentials"))
     result.update(
         stable_root_credentials(

@@ -24,6 +24,27 @@ resource "helm_release" "nvidia_device_plugin" {
       deviceIDStrategy   = "uuid"
       failOnInitError    = true
       nvidiaDriverRoot   = "/"
+      nodeSelector       = var.gpu_node_selector
+      tolerations = concat(
+        [
+          {
+            key      = "CriticalAddonsOnly"
+            operator = "Exists"
+          },
+          {
+            key      = "nvidia.com/gpu"
+            operator = "Exists"
+            effect   = "NoSchedule"
+          },
+        ],
+        [
+          for key in keys(var.gpu_node_selector) : {
+            key      = key
+            operator = "Exists"
+            effect   = "NoSchedule"
+          }
+        ],
+      )
     })
   ]
 }

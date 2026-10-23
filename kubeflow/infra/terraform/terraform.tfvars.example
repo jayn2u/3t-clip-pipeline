@@ -1,5 +1,5 @@
-minio_root_user     = "changeme"
-minio_root_password = "changeme"
+minio_root_user     = "replace-with-root-user"
+minio_root_password = "replace-with-a-long-random-password"
 
 enable_tailscale              = false
 tailscale_oauth_client_id     = ""
