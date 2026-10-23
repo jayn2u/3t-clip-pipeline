@@ -12,17 +12,29 @@
   failed_when: false
   check_mode: false
 
-- name: Add NVIDIA container toolkit signing key for a new installation
-  ansible.builtin.apt_key:
+- name: Ensure the apt keyring directory exists
+  ansible.builtin.file:
+    path: "{{ nvidia_container_toolkit_keyring | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  when: nvidia_toolkit_installed.rc != 0
+
+- name: Download the pinned NVIDIA container toolkit signing key into a dedicated keyring
+  ansible.builtin.get_url:
     url: "{{ nvidia_container_toolkit_repo_key_url }}"
-    keyring: /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
-    state: present
+    dest: "{{ nvidia_container_toolkit_keyring }}"
+    checksum: "sha256:{{ nvidia_container_toolkit_repo_key_sha256 }}"
+    owner: root
+    group: root
+    mode: "0644"
   when: nvidia_toolkit_installed.rc != 0
 
 - name: Add NVIDIA container toolkit apt repository for a new installation
   ansible.builtin.apt_repository:
     repo: >-
-      deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg]
+      deb [signed-by={{ nvidia_container_toolkit_keyring }}]
       {{ nvidia_container_toolkit_repo_url }}
     state: present
     filename: nvidia-container-toolkit
@@ -51,3 +63,29 @@
       - -L
   changed_when: false
   check_mode: false
+
+- name: Check whether the running k3s containerd config registers the NVIDIA runtime
+  ansible.builtin.command:
+    argv:
+      - grep
+      - --quiet
+      - --fixed-strings
+      - "{{ nvidia_k3s_runtime_marker }}"
+      - "{{ nvidia_k3s_containerd_config }}"
+  register: nvidia_k3s_runtime_registered
+  changed_when: nvidia_k3s_runtime_registered.rc != 0
+  failed_when: nvidia_k3s_runtime_registered.rc > 2
+  check_mode: false
+  notify: restart k3s
+
+- name: Restart k3s now so containerd regenerates its runtime config
+  ansible.builtin.meta: flush_handlers
+
+- name: Wait for k3s to regenerate a containerd config with the NVIDIA runtime
+  ansible.builtin.wait_for:
+    path: "{{ nvidia_k3s_containerd_config }}"
+    search_regex: "{{ nvidia_k3s_runtime_marker }}"
+    timeout: 120
+  when:
+    - not ansible_check_mode
+    - nvidia_k3s_runtime_registered is changed

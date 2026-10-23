@@ -2,10 +2,14 @@
 
 - name: Verify hosts before making any change
   import_playbook: preflight.yml
+  tags:
+    - always
 
 - name: Prepare persistent directories on every node
   hosts: k3s_cluster
   gather_facts: true
+  tags:
+    - storage
   vars_files:
     - ../group_vars/all.yml
   roles:
@@ -17,11 +21,28 @@
   vars_files:
     - ../group_vars/all.yml
   roles:
-    - host_prepare
+    - role: host_prepare
+      tags:
+        - host_prepare
+    - role: k3s_firewall
+      tags:
+        - firewall
+
+- name: Move kubelet and pod-log storage onto the persistent filesystem before k3s starts
+  hosts: k3s_cluster
+  gather_facts: false
+  tags:
+    - kubelet_storage
+  vars_files:
+    - ../group_vars/all.yml
+  roles:
+    - kubelet_storage
 
 - name: Install and start the k3s control plane
   hosts: k3s_server
   gather_facts: true
+  tags:
+    - k3s
   vars_files:
     - ../group_vars/all.yml
   roles:
@@ -30,6 +51,8 @@
 - name: Join worker nodes to the control plane
   hosts: k3s_agent
   gather_facts: true
+  tags:
+    - k3s
   vars_files:
     - ../group_vars/all.yml
   roles:
@@ -38,6 +61,8 @@
 - name: Install and register the NVIDIA runtime on every node
   hosts: k3s_cluster
   gather_facts: true
+  tags:
+    - nvidia
   vars_files:
     - ../group_vars/all.yml
   roles:

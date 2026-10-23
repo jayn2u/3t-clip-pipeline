@@ -1,0 +1,144 @@
+---
+- name: Assert bind mount sources are dedicated paths on persistent storage
+  ansible.builtin.assert:
+    that:
+      - item.src.startswith(storage_mount.rstrip('/') + '/')
+      - item.path.startswith('/')
+      - "'..' not in item.src.split('/')"
+      - "'..' not in item.path.split('/')"
+    fail_msg: "Bind mount source {{ item.src }} must live below {{ storage_mount }}."
+  loop: "{{ k3s_bind_mounts }}"
+  loop_control:
+    label: "{{ item.path }}"
+  when: k3s_bind_mounts_enabled | bool
+
+- name: Check which kubelet paths are already mount points
+  ansible.builtin.command:
+    argv:
+      - findmnt
+      - --noheadings
+      - --mountpoint
+      - "{{ item.path }}"
+  loop: "{{ k3s_bind_mounts }}"
+  loop_control:
+    label: "{{ item.path }}"
+  register: k3s_bind_mount_state
+  changed_when: false
+  failed_when: k3s_bind_mount_state.rc not in [0, 1]
+  check_mode: false
+  when: k3s_bind_mounts_enabled | bool
+
+- name: Check whether k3s is running
+  ansible.builtin.command:
+    argv:
+      - systemctl
+      - is-active
+      - --quiet
+      - "{{ k3s_service_name }}"
+  register: k3s_bind_mount_service_state
+  changed_when: false
+  failed_when: false
+  check_mode: false
+  when: k3s_bind_mounts_enabled | bool
+
+- name: Refuse to bind-mount kubelet paths underneath a running k3s
+  ansible.builtin.assert:
+    that: k3s_bind_mount_service_state.rc != 0
+    fail_msg: >-
+      {{ k3s_service_name }} is running and these paths are not yet mounted:
+      {{ k3s_bind_mount_state.results | selectattr('rc', 'equalto', 1) | map(attribute='item.path') | join(', ') }}.
+      Stop {{ k3s_service_name }} and migrate the existing data first.
+  when:
+    - k3s_bind_mounts_enabled | bool
+    - k3s_bind_mount_state.results | selectattr('rc', 'equalto', 1) | list | length > 0
+
+- name: Ensure bind mount source directories exist
+  ansible.builtin.file:
+    path: "{{ item.src }}"
+    state: directory
+  loop: "{{ k3s_bind_mounts }}"
+  loop_control:
+    label: "{{ item.src }}"
+  when: k3s_bind_mounts_enabled | bool
+
+- name: Ensure bind mount target directories exist
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+  loop: "{{ k3s_bind_mounts }}"
+  loop_control:
+    label: "{{ item.path }}"
+  when: k3s_bind_mounts_enabled | bool
+
+- name: Find existing data that a new bind mount would hide
+  ansible.builtin.command:
+    argv:
+      - find
+      - "{{ item.item.path }}"
+      - -mindepth
+      - "1"
+      - -maxdepth
+      - "1"
+      - -print
+      - -quit
+  loop: "{{ k3s_bind_mount_state.results }}"
+  loop_control:
+    label: "{{ item.item.path }}"
+  register: k3s_bind_mount_target_entries
+  changed_when: false
+  failed_when: false
+  check_mode: false
+  when:
+    - k3s_bind_mounts_enabled | bool
+    - item.rc == 1
+
+- name: Find data already migrated into each bind mount source
+  ansible.builtin.command:
+    argv:
+      - find
+      - "{{ item.item.src }}"
+      - -mindepth
+      - "1"
+      - -maxdepth
+      - "1"
+      - -print
+      - -quit
+  loop: "{{ k3s_bind_mount_state.results }}"
+  loop_control:
+    label: "{{ item.item.src }}"
+  register: k3s_bind_mount_source_entries
+  changed_when: false
+  failed_when: false
+  check_mode: false
+  when:
+    - k3s_bind_mounts_enabled | bool
+    - item.rc == 1
+
+- name: Refuse to hide unmigrated kubelet or pod-log data
+  ansible.builtin.assert:
+    that: >-
+      k3s_bind_mounts_allow_shadow | bool or
+      (item.0.stdout | default('') | length == 0) or
+      (item.1.stdout | default('') | length > 0)
+    fail_msg: >-
+      {{ item.0.item.item.path }} has data and {{ item.0.item.item.src }} is empty.
+      Copy the data into {{ item.0.item.item.src }} first, or set
+      k3s_bind_mounts_allow_shadow=true to mount over it.
+  loop: "{{ k3s_bind_mount_target_entries.results | zip(k3s_bind_mount_source_entries.results) | list }}"
+  loop_control:
+    label: "{{ item.0.item.item.path }}"
+  when:
+    - k3s_bind_mounts_enabled | bool
+    - item.0 is not skipped
+
+- name: Bind-mount kubelet and pod-log paths from persistent storage via fstab
+  ansible.posix.mount:
+    src: "{{ item.src }}"
+    path: "{{ item.path }}"
+    fstype: none
+    opts: "bind,nofail,x-systemd.requires-mounts-for={{ storage_mount }}"
+    state: mounted
+  loop: "{{ k3s_bind_mounts }}"
+  loop_control:
+    label: "{{ item.src }} -> {{ item.path }}"
+  when: k3s_bind_mounts_enabled | bool

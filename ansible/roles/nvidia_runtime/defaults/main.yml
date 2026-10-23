@@ -1,3 +1,7 @@
 ---
 nvidia_container_toolkit_repo_key_url: https://nvidia.github.io/libnvidia-container/gpgkey
+nvidia_container_toolkit_repo_key_sha256: c880576d6cf75a48e5027a871bac70fd0421ab07d2b55f30877b21f1c87959c9
+nvidia_container_toolkit_keyring: /etc/apt/keyrings/nvidia-container-toolkit.asc
 nvidia_container_toolkit_repo_url: https://nvidia.github.io/libnvidia-container/stable/deb/$(ARCH) /
+nvidia_k3s_containerd_config: "{{ k3s_data_dir }}/agent/etc/containerd/config.toml"
+nvidia_k3s_runtime_marker: nvidia-container-runtime

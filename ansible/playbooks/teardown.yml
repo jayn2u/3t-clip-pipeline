@@ -10,9 +10,10 @@
         that: confirm_teardown | default(false) | bool
         fail_msg: >-
           Refusing to tear down the cluster without confirmation.
-          Re-run with -e confirm_teardown=yes. Teardown always preserves data.
+          Re-run with -e confirm_teardown=yes. Teardown keeps k3s_data_dir,
+          kubelet, and pod-log data unless -e k3s_teardown_purge=true is also passed.
 
-- name: Validate every k3s data directory before uninstall
+- name: Validate every k3s data directory before teardown
   hosts: k3s_cluster
   gather_facts: false
   any_errors_fatal: true
@@ -28,37 +29,17 @@
   gather_facts: false
   vars_files:
     - ../group_vars/all.yml
-  tasks:
-    - name: Check for the k3s agent uninstall script
-      ansible.builtin.stat:
-        path: /usr/local/bin/k3s-agent-uninstall.sh
-      register: k3s_agent_uninstaller
-
-    - name: Run k3s agent uninstall script
-      ansible.builtin.command: /usr/local/bin/k3s-agent-uninstall.sh
-      environment:
-        K3S_DATA_DIR: "{{ k3s_data_dir }}"
-      become: true
-      when: k3s_agent_uninstaller.stat.exists
+  roles:
+    - k3s_teardown
 
 - name: Remove k3s from the control-plane node
   hosts: k3s_server
   gather_facts: false
   vars_files:
     - ../group_vars/all.yml
+  roles:
+    - k3s_teardown
   tasks:
-    - name: Check for the k3s server uninstall script
-      ansible.builtin.stat:
-        path: /usr/local/bin/k3s-uninstall.sh
-      register: k3s_server_uninstaller
-
-    - name: Run k3s server uninstall script
-      ansible.builtin.command: /usr/local/bin/k3s-uninstall.sh
-      environment:
-        K3S_DATA_DIR: "{{ k3s_data_dir }}"
-      become: true
-      when: k3s_server_uninstaller.stat.exists
-
     - name: Remove the fetched kubeconfig used by Terraform
       ansible.builtin.file:
         path: "{{ k3s_kubeconfig_fetch_dest }}"

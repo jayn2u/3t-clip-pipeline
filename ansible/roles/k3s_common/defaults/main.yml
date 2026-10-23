@@ -1,0 +1,84 @@
+---
+k3s_release_base_url: https://github.com/k3s-io/k3s/releases/download
+k3s_release_assets:
+  x86_64:
+    name: k3s
+    sha256: 65a55ec56c24eab44383086166ec620a491952b7e23941a49ddca6e8a4c4b4de
+  aarch64:
+    name: k3s-arm64
+    sha256: 1dc5fc17f15c28fa0a3f011cee28ad613f918c3d967a426e5a05d43ddb239817
+k3s_binary_path: /usr/local/bin/k3s
+k3s_binary_links:
+  - crictl
+  - ctr
+k3s_config_dir: /etc/rancher/k3s
+k3s_config_file: "{{ k3s_config_dir }}/config.yaml"
+k3s_systemd_dir: /etc/systemd/system
+
+k3s_disable_components:
+  - traefik
+k3s_node_labels: []
+k3s_node_taints: []
+k3s_tls_san: []
+k3s_write_kubeconfig_mode: "0600"
+k3s_advertise_address: "{{ k3s_node_ip }}"
+k3s_bind_address: ""
+
+k3s_kubelet_root_dir: /var/lib/kubelet
+k3s_pod_log_dir: /var/log/pods
+k3s_image_gc_high_threshold: 80
+k3s_image_gc_low_threshold: 70
+k3s_eviction_hard:
+  memory.available: 2Gi
+  nodefs.available: 15%
+  nodefs.inodesFree: 5%
+  imagefs.available: 10%
+  imagefs.inodesFree: 5%
+k3s_eviction_minimum_reclaim:
+  memory.available: 512Mi
+  nodefs.available: 5Gi
+  imagefs.available: 5Gi
+k3s_container_log_max_size: 50Mi
+k3s_container_log_max_files: 3
+k3s_system_reserved:
+  cpu: "1"
+  memory: 2Gi
+  ephemeral-storage: 10Gi
+k3s_extra_kubelet_args: []
+
+k3s_gpu_offered: false
+k3s_gpu_node_label_key: labclip.io/k8s-gpu
+k3s_gpu_node_taint_enabled: false
+
+k3s_bind_mounts_enabled: true
+k3s_bind_mounts_allow_shadow: false
+k3s_bind_mount_root: "{{ k3s_data_dir | dirname }}"
+k3s_bind_mounts:
+  - src: "{{ k3s_bind_mount_root }}/labclip-kubelet"
+    path: "{{ k3s_kubelet_root_dir }}"
+  - src: "{{ k3s_bind_mount_root }}/labclip-podlogs"
+    path: "{{ k3s_pod_log_dir }}"
+k3s_requires_mounts_for: >-
+  {{ [storage_mount, k3s_kubelet_root_dir] +
+     ([k3s_pod_log_dir] if k3s_bind_mounts_enabled | bool else []) }}
+
+k3s_cluster_cidr: 10.42.0.0/16
+k3s_service_cidr: 10.43.0.0/16
+k3s_firewall_enabled: true
+k3s_firewall_ports:
+  - port: "6443"
+    proto: tcp
+  - port: "10250"
+    proto: tcp
+k3s_firewall_tailscale_cidrs:
+  - 100.64.0.0/10
+k3s_firewall_lan_cidrs: []
+k3s_firewall_rule_comment: labclip-k3s
+
+k3s_teardown_purge: false
+
+k3s_service_role: "{{ 'server' if 'k3s_server' in group_names else 'agent' }}"
+k3s_service_name: "{{ 'k3s' if k3s_service_role == 'server' else 'k3s-agent' }}"
+k3s_unit_path: "{{ k3s_systemd_dir }}/{{ k3s_service_name }}.service"
+k3s_env_path: "{{ k3s_systemd_dir }}/{{ k3s_service_name }}.service.env"
+k3s_dropin_dir: "{{ k3s_systemd_dir }}/{{ k3s_service_name }}.service.d"

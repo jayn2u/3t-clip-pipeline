@@ -1,0 +1,44 @@
+{% set gpu_label = [k3s_gpu_node_label_key ~ '=true'] if k3s_gpu_offered | bool else [] %}
+{% set gpu_taint = [k3s_gpu_node_label_key ~ '=true:NoSchedule'] if (k3s_gpu_offered | bool and k3s_gpu_node_taint_enabled | bool) else [] %}
+{% set kubelet_args = [
+  'image-gc-high-threshold=' ~ k3s_image_gc_high_threshold,
+  'image-gc-low-threshold=' ~ k3s_image_gc_low_threshold,
+  'eviction-hard=' ~ (k3s_eviction_hard | dict2items | map(attribute='key') | zip(k3s_eviction_hard | dict2items | map(attribute='value')) | map('join', '<') | join(',')),
+  'eviction-minimum-reclaim=' ~ (k3s_eviction_minimum_reclaim | dict2items | map(attribute='key') | zip(k3s_eviction_minimum_reclaim | dict2items | map(attribute='value')) | map('join', '=') | join(',')),
+  'container-log-max-size=' ~ k3s_container_log_max_size,
+  'container-log-max-files=' ~ k3s_container_log_max_files,
+  'system-reserved=' ~ (k3s_system_reserved | dict2items | map(attribute='key') | zip(k3s_system_reserved | dict2items | map(attribute='value')) | map('join', '=') | join(',')),
+] + k3s_extra_kubelet_args %}
+{% set config = {
+  'data-dir': k3s_data_dir,
+  'node-name': inventory_hostname,
+  'node-ip': k3s_node_ip,
+  'kubelet-arg': kubelet_args,
+} %}
+{% if k3s_node_labels or gpu_label %}
+{% set _ = config.update({'node-label': k3s_node_labels + gpu_label}) %}
+{% endif %}
+{% if k3s_node_taints or gpu_taint %}
+{% set _ = config.update({'node-taint': k3s_node_taints + gpu_taint}) %}
+{% endif %}
+{% if k3s_service_role == 'server' %}
+{% set _ = config.update({
+  'advertise-address': k3s_advertise_address,
+  'write-kubeconfig-mode': k3s_write_kubeconfig_mode | string,
+  'disable': k3s_disable_components,
+  'cluster-cidr': k3s_cluster_cidr,
+  'service-cidr': k3s_service_cidr,
+}) %}
+{% if k3s_bind_address %}
+{% set _ = config.update({'bind-address': k3s_bind_address}) %}
+{% endif %}
+{% if k3s_tls_san %}
+{% set _ = config.update({'tls-san': k3s_tls_san}) %}
+{% endif %}
+{% else %}
+{% set _ = config.update({
+  'server': 'https://' ~ k3s_server_address ~ ':6443',
+  'token': hostvars[k3s_server_host]['k3s_join_token'] | default(''),
+}) %}
+{% endif %}
+{{ config | to_nice_yaml(indent=2, sort_keys=true) }}

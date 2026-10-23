@@ -1,12 +1,31 @@
 ---
 
-- name: Ensure cache directory exists with correct ownership
+- name: Ensure the cache writer group exists
+  ansible.builtin.group:
+    name: "{{ cache_root_group }}"
+    system: true
+    state: present
+
+- name: Add trusted users to the cache writer group
+  ansible.builtin.user:
+    name: "{{ item }}"
+    groups: "{{ cache_root_group }}"
+    append: true
+  loop: "{{ cache_root_group_members }}"
+
+- name: Look up the cache writer group
+  ansible.builtin.getent:
+    database: group
+    key: "{{ cache_root_group }}"
+    fail_key: false
+
+- name: Ensure cache directory exists with group-only write access
   ansible.builtin.file:
     path: "{{ cache_root }}"
     state: directory
     owner: root
-    group: root
-    mode: "0777"
+    group: "{{ cache_root_group if (ansible_facts.getent_group | default({})).get(cache_root_group) is not none else omit }}"
+    mode: "{{ cache_root_mode }}"
 
 - name: Require an explicit MinIO data root
   ansible.builtin.assert:
