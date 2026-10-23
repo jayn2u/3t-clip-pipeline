@@ -29,7 +29,7 @@ class OwnershipGuardTerraformTests(unittest.TestCase):
                 check=False,
             )
             self.assertEqual(0, result.returncode, result.stdout[-3000:] + result.stderr[-2000:])
-            self.assertRegex(result.stdout, r"6 passed, 0 failed")
+            self.assertRegex(result.stdout, r"8 passed, 0 failed")
 
 
 if __name__ == "__main__":

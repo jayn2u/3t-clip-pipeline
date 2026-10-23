@@ -1,0 +1,156 @@
+---
+- name: Check whether the k3s binary is present
+  ansible.builtin.stat:
+    path: "{{ k3s_binary_path }}"
+  register: k3s_teardown_binary
+
+- name: Check whether the k3s service unit is present
+  ansible.builtin.stat:
+    path: "{{ k3s_unit_path }}"
+  register: k3s_teardown_unit
+
+- name: Check whether k3s is running
+  ansible.builtin.command:
+    argv:
+      - systemctl
+      - is-active
+      - --quiet
+      - "{{ k3s_service_name }}"
+  register: k3s_teardown_active
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Remove every pod sandbox while k3s is still running
+  ansible.builtin.command:
+    argv:
+      - "{{ k3s_binary_path }}"
+      - crictl
+      - rmp
+      - --all
+      - --force
+  register: k3s_teardown_rmp
+  changed_when: true
+  failed_when: false
+  when:
+    - k3s_teardown_binary.stat.exists
+    - k3s_teardown_active.rc == 0
+
+- name: Stop and disable the k3s service
+  ansible.builtin.systemd:
+    name: "{{ k3s_service_name }}"
+    state: stopped
+    enabled: false
+  when: k3s_teardown_unit.stat.exists
+
+- name: Stop container shims left behind by this k3s data directory
+  ansible.builtin.command:
+    argv:
+      - pkill
+      - --full
+      - "^{{ k3s_data_dir }}/data/[^/]+/bin/containerd-shim"
+  register: k3s_teardown_pkill
+  changed_when: k3s_teardown_pkill.rc == 0
+  failed_when: k3s_teardown_pkill.rc not in [0, 1]
+
+- name: Unmount k3s runtime and pod volume mounts without touching persistent mounts
+  ansible.builtin.shell: |
+    set -euo pipefail
+    awk '{print $2}' /proc/self/mounts \
+      | grep -E '^(/run/k3s/|{{ k3s_kubelet_root_dir }}/pods/|{{ k3s_kubelet_root_dir }}/plugins/|/run/netns/cni-)' \
+      | sort -r \
+      | xargs -r -n 1 umount --lazy
+  args:
+    executable: /bin/bash
+  register: k3s_teardown_umount
+  changed_when: true
+
+- name: Delete CNI network interfaces created by k3s
+  ansible.builtin.command:
+    argv:
+      - ip
+      - link
+      - delete
+      - "{{ item }}"
+  loop:
+    - cni0
+    - flannel.1
+    - flannel-v6.1
+    - flannel-wg
+    - flannel-wg-v6
+  register: k3s_teardown_links
+  changed_when: k3s_teardown_links.rc == 0
+  failed_when: false
+
+- name: Remove the k3s service, drop-in, and configuration managed by this repository
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - "{{ k3s_unit_path }}"
+    - "{{ k3s_env_path }}"
+    - "{{ k3s_dropin_dir }}/mount.conf"
+    - "{{ k3s_config_file }}"
+    - "{{ k3s_config_dir }}/k3s.yaml"
+  notify: reload systemd
+
+- name: Check k3s helper command links
+  ansible.builtin.stat:
+    path: "{{ k3s_binary_path | dirname }}/{{ item }}"
+  loop: "{{ k3s_binary_links }}"
+  register: k3s_teardown_link_paths
+
+- name: Remove k3s helper command links that point at the k3s binary
+  ansible.builtin.file:
+    path: "{{ item.stat.path }}"
+    state: absent
+  loop: "{{ k3s_teardown_link_paths.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when:
+    - item.stat.exists
+    - item.stat.islnk | default(false)
+    - item.stat.lnk_source | default('') == k3s_binary_path
+
+- name: Remove the k3s binary
+  ansible.builtin.file:
+    path: "{{ k3s_binary_path }}"
+    state: absent
+
+- name: Apply systemd unit removals
+  ansible.builtin.meta: flush_handlers
+
+- name: Purge the k3s data directory when explicitly requested
+  ansible.builtin.file:
+    path: "{{ k3s_data_dir }}"
+    state: absent
+  when: k3s_teardown_purge | bool
+
+- name: Purge kubelet and pod-log contents when explicitly requested
+  ansible.builtin.command:
+    argv:
+      - find
+      - "{{ item }}"
+      - -xdev
+      - -mindepth
+      - "1"
+      - -maxdepth
+      - "1"
+      - -exec
+      - rm
+      - -rf
+      - --one-file-system
+      - "{}"
+      - +
+  loop:
+    - "{{ k3s_kubelet_root_dir }}"
+    - "{{ k3s_pod_log_dir }}"
+  changed_when: true
+  when: k3s_teardown_purge | bool
+
+- name: Report what teardown kept
+  ansible.builtin.debug:
+    msg: >-
+      {{ 'Purged' if k3s_teardown_purge | bool else 'Preserved' }}
+      {{ k3s_data_dir }}, {{ k3s_kubelet_root_dir }}, and {{ k3s_pod_log_dir }}
+      on {{ inventory_hostname }}. cache_root, MinIO data, and fstab bind mounts are never removed.

@@ -13,7 +13,7 @@ terraform -chdir=argo/terraform apply
 
 `argo/terraform/terraform.tfvars` holds the MinIO root credentials and stays untracked. `prepare_terraform_inputs.py` writes `argo/terraform/terraform.generated.auto.tfvars.json` and points `kubeconfig_path` at `ansible/generated/kubeconfig`.
 
-When this repository is vendored as a submodule of `lab_clip`, set `labclip_workflow_template_path` to the checked-in `pipeline/argo/generated/labclip-train.yaml` of that checkout.
+When this repository is vendored as a submodule of `lab_clip` at `infra/3t-clip-pipeline`, `prepare_terraform_inputs.py` detects the parent checkout and sets `labclip_workflow_template_path` to its `pipeline/argo/generated/labclip-train.yaml`. In any other layout, set `labclip_workflow_template_path` to the checked-in template yourself.
 
 Tests run from the `argo/` directory so that its own `scripts` package is imported:
 

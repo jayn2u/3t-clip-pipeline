@@ -6,7 +6,7 @@ import subprocess
 import tempfile
 import unittest
 
-from scripts.prepare_terraform_inputs import prepare_inputs
+from scripts.prepare_terraform_inputs import prepare_inputs, submodule_workflow_template
 
 
 class TerraformInputTests(unittest.TestCase):
@@ -106,6 +106,17 @@ class TerraformInputTests(unittest.TestCase):
             )
             self.assertNotIn("UNRELATED_TOKEN", first)
             self.assertEqual(0o600, stat.S_IMODE(output.stat().st_mode))
+
+    def test_submodule_layout_points_terraform_at_the_parent_workflow_template(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            parent = Path(temporary_directory) / "lab_clip"
+            root = parent / "infra" / "3t-clip-pipeline" / "argo"
+            root.mkdir(parents=True)
+            self.assertIsNone(submodule_workflow_template(root))
+            template = parent / "pipeline" / "argo" / "generated" / "labclip-train.yaml"
+            template.parent.mkdir(parents=True)
+            template.write_text("kind: WorkflowTemplate\n", encoding="utf-8")
+            self.assertEqual(template, submodule_workflow_template(root))
 
     def test_root_credentials_require_explicit_generation_and_remain_stable(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:

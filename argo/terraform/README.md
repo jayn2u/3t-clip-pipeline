@@ -59,11 +59,12 @@ running Terraform. The bootstrap checks both its release and checksum. The pinne
 HTTP 410; a matching local binary is required until that source is available
 again.
 
-If `lab_clip` is not a sibling checkout, set
-`labclip_workflow_template_path` to the checked-in
-`pipeline/argo/generated/labclip-train.yaml` from that checkout. The default is
+The `labclip_workflow_template_path` default is
 `../../../lab_clip/pipeline/argo/generated/labclip-train.yaml`, relative to this
-Terraform root.
+Terraform root, for a sibling `lab_clip` checkout. When this repository is the
+`infra/3t-clip-pipeline` submodule of `lab_clip`, `prepare_terraform_inputs.py`
+writes the parent checkout's `pipeline/argo/generated/labclip-train.yaml` into
+the generated tfvars. For any other layout, set the variable yourself.
 
 Tailscale is disabled by default and needs no OAuth credentials unless
 `enable_tailscale = true` is selected explicitly.
@@ -76,7 +77,7 @@ Tailscale is disabled by default and needs no OAuth credentials unless
 | MinIO ML-assets store | Namespace `argo`, secret `minio-ml-assets-secret`, path `/data/jayn2u/minio`, ClusterIP service |
 | Cache storage | `labclip-local-cache`, retained local PVs and claims `labclip-cache-vis-lab` / `labclip-cache-ubuntu` in `argo` |
 | Argo Workflows | Chart `1.0.20`, app `v4.0.7`, internal `argo-server` Service, controller watches `argo` |
-| NVIDIA GPU support | Device plugin chart `0.19.3`; the k3s-created `RuntimeClass/nvidia` remains Ansible's runtime integration output |
+| NVIDIA GPU support | Device plugin chart `0.19.3`, scheduled only on nodes matching `gpu_node_selector` (default `labclip.io/k8s-gpu=true`, set by Ansible when `k3s_gpu_offered` is true); the k3s-created `RuntimeClass/nvidia` remains Ansible's runtime integration output |
 | Pipeline credentials | `ghcr-secret`, `ghcr-pull-secret`, `wandb-secret`, MinIO pipeline and researcher secrets |
 
 With the upstream chart's `fullnameOverride = "argo"`, the server Service is
@@ -155,3 +156,14 @@ data after teardown; see the dated record under `docs/validation/`.
 | `nvidia_device_plugin.tf` | NVIDIA device plugin plus its NFD/GFD components |
 | `argo_workflows.tf` | Argo Helm release and imported LabCLIP WorkflowTemplate |
 | `tailscale.tf` | Optional Tailscale operator |
+
+## GPU opt-in
+
+GPUs are not offered to Kubernetes by default. The device plugin and GPU
+Feature Discovery run only on nodes carrying every label in
+`gpu_node_selector`, and they tolerate a `NoSchedule` taint with the same keys.
+A node without the label advertises no `nvidia.com/gpu`, so GPU pods stay
+pending instead of competing with work running directly on the host. Opt a
+node in with `k3s_gpu_offered: true` in the Ansible inventory, or with
+`kubectl label node <node> labclip.io/k8s-gpu=true` on a node that is already
+registered.

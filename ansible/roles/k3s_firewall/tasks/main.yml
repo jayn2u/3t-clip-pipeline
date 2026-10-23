@@ -1,0 +1,60 @@
+---
+- name: Build the source networks allowed to reach the k3s API and kubelet
+  ansible.builtin.set_fact:
+    k3s_firewall_allowed_cidrs: >-
+      {{ (k3s_firewall_lan_cidrs + k3s_firewall_tailscale_cidrs +
+          [k3s_cluster_cidr, k3s_service_cidr] +
+          (groups['k3s_cluster'] | default([]) | map('extract', hostvars, 'k3s_node_ip')
+           | select('defined') | map('regex_replace', '$', '/32') | list))
+         | unique }}
+  when: k3s_firewall_enabled | bool
+
+- name: Read the ufw status
+  ansible.builtin.command:
+    argv:
+      - ufw
+      - status
+  register: k3s_firewall_status
+  changed_when: false
+  failed_when: false
+  check_mode: false
+  when: k3s_firewall_enabled | bool
+
+- name: Record whether ufw is active
+  ansible.builtin.set_fact:
+    k3s_firewall_active: "{{ k3s_firewall_enabled | bool and k3s_firewall_status.rc == 0 and 'Status: active' in k3s_firewall_status.stdout }}"
+
+- name: Warn that k3s ports stay unrestricted while ufw is inactive
+  ansible.builtin.debug:
+    msg: >-
+      ufw is not active on {{ inventory_hostname }}; ports
+      {{ k3s_firewall_ports | map(attribute='port') | join(', ') }} are not restricted.
+      This role never enables ufw itself.
+  when:
+    - k3s_firewall_enabled | bool
+    - not k3s_firewall_active | bool
+
+- name: Deny the k3s API and kubelet ports from other networks
+  community.general.ufw:
+    rule: deny
+    port: "{{ item.port }}"
+    proto: "{{ item.proto }}"
+    comment: "{{ k3s_firewall_rule_comment }}"
+  loop: "{{ k3s_firewall_ports }}"
+  loop_control:
+    label: "{{ item.port }}/{{ item.proto }}"
+  when: k3s_firewall_active | bool
+
+- name: Allow the k3s API and kubelet ports from trusted networks ahead of the deny rules
+  community.general.ufw:
+    rule: allow
+    port: "{{ item.0.port }}"
+    proto: "{{ item.0.proto }}"
+    from_ip: "{{ item.1 }}"
+    insert: 0
+    insert_relative_to: first-ipv4
+    comment: "{{ k3s_firewall_rule_comment }}"
+  loop: "{{ k3s_firewall_ports | product(k3s_firewall_allowed_cidrs) | list }}"
+  loop_control:
+    label: "{{ item.0.port }}/{{ item.0.proto }} from {{ item.1 }}"
+  when: k3s_firewall_active | bool

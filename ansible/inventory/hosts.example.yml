@@ -13,6 +13,11 @@ all:
           cache_capacity_gi: 200
           minio_role: minio-code
           minio_data_root: /mnt/data/minio-code
+          cache_root_group_members:
+            - ops
+          k3s_gpu_offered: false
+          k3s_firewall_lan_cidrs:
+            - 10.0.0.0/24
     k3s_agent:
       hosts:
         ubuntu:
@@ -26,6 +31,11 @@ all:
           cache_capacity_gi: 800
           minio_role: minio-ml-assets
           minio_data_root: /data/jayn2u/minio
+          cache_root_group_members:
+            - ops
+          k3s_gpu_offered: false
+          k3s_firewall_lan_cidrs:
+            - 10.0.0.0/24
     gpu_nodes:
       children:
         k3s_server:

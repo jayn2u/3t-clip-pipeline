@@ -93,7 +93,7 @@ existing release without reconciling its ownership and the version difference.
 | MinIO code store | Namespace `argo`, secret `minio-code-secret`, path `/mnt/data/minio-code`, pinned Community image, ClusterIP service, loopback port `3910` |
 | MinIO ML-assets store | Namespace `argo`, secret `minio-ml-assets-secret`, path `/data/jayn2u/minio`, ClusterIP service |
 | Cache storage | `labclip-local-cache`, retained local PVs and one claim per PV in the active LabCLIP run namespace |
-| NVIDIA GPU support | Device plugin chart `0.19.3`; the k3s-created `RuntimeClass/nvidia` remains Ansible's runtime integration output |
+| NVIDIA GPU support | Device plugin chart `0.19.3`, scheduled only on nodes matching `gpu_node_selector` (default `labclip.io/k8s-gpu=true`, set by Ansible when `k3s_gpu_offered` is true); the k3s-created `RuntimeClass/nvidia` remains Ansible's runtime integration output |
 | Pipeline credentials | `ghcr-secret`, `ghcr-pull-secret`, `wandb-secret`, MinIO pipeline and researcher secrets |
 
 The local PV reclaim policy is `Retain`. Destroying Terraform-managed
@@ -217,3 +217,14 @@ data after teardown; see the dated record under `docs/validation/`.
 | `minio.tf` | MinIO deployments/services and pipeline Secrets |
 | `nvidia_device_plugin.tf` | NVIDIA device plugin plus its NFD/GFD components |
 | `tailscale.tf` | Optional Tailscale operator |
+
+## GPU opt-in
+
+GPUs are not offered to Kubernetes by default. The device plugin and GPU
+Feature Discovery run only on nodes carrying every label in
+`gpu_node_selector`, and they tolerate a `NoSchedule` taint with the same keys.
+A node without the label advertises no `nvidia.com/gpu`, so GPU pods stay
+pending instead of competing with work running directly on the host. Opt a
+node in with `k3s_gpu_offered: true` in the Ansible inventory, or with
+`kubectl label node <node> labclip.io/k8s-gpu=true` on a node that is already
+registered.
